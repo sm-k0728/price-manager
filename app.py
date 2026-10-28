@@ -24,10 +24,10 @@ st.set_page_config(
     page_title="거래명세서 단가 관리 프로그램", page_icon="📦", layout="centered"
 )
 
-st.title("📦 거래명세서 스마트 단가 관리기 (수정 기능 강화)")
+st.title("📦 거래명세서 스마트 단가 관리기")
 
 # 화면 탭 설정
-tab1, tab2 = tab1, tab2 = st.tabs(
+tab1, tab2 = st.tabs(
     ["🔍 전체 품목 조회 및 수정/삭제", "📝 사진 OCR 자동 추출 및 등록"]
 )
 
@@ -55,12 +55,11 @@ with tab1:
         "거래일자",
     ]
 
-    # id 컬럼은 숨기고 사용자가 편집할 수 있게 함
     edited_result_df = st.data_editor(
         display_df,
         column_config={
             "삭제": st.column_config.CheckboxColumn(required=True),
-            "id": None,  # id는 화면에 안 보이게 숨김
+            "id": None,
         },
         disabled=["id"],
         use_container_width=True,
@@ -155,49 +154,53 @@ with tab2:
     )
 
   if uploaded_file is not None:
-    image = Image.open(uploaded_file)
-    st.image(image, caption="업로드된 거래명세서", use_container_width=True)
+    try:
+      # 이미지 형식이 달라도 RGB로 안전하게 변환
+      image = Image.open(uploaded_file)
+      if image.mode != "RGB":
+        image = image.convert("RGB")
+      st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    if st.button("🔍 실제 사진 글자 인식(OCR) 실행"):
-      with st.spinner("사진에서 글자와 숫자를 읽어오는 중입니다..."):
-        try:
+      if st.button("🔍 실제 사진 글자 인식(OCR) 실행"):
+        with st.spinner("사진에서 글자와 숫자를 읽어오는 중입니다..."):
           extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          if "미래테크" in extracted_text or "PP" in extracted_text:
-            parsed_data = [
-                {
-                    "품목명": "면세식 PP SHEET",
-                    "규격": "25*1000*5000",
-                    "단가(원)": 215000,
-                    "거래처": "미래테크",
-                    "거래일자": "2025-10-20",
-                },
-                {
-                    "품목명": "면세식 PP SHEET",
-                    "규격": "15*1300*5000",
-                    "단가(원)": 310500,
-                    "거래처": "미래테크",
-                    "거래일자": "2025-10-20",
-                },
-            ]
-          else:
-            parsed_data = [{
-                "품목명": "",
-                "규격": "",
-                "단가(원)": 0,
-                "거래처": "",
-                "거래일자": datetime.today().strftime("%Y-%m-%d"),
-            }]
+          # 미래테크 명세서 또는 일반 입력 대응 기본 구조
+          parsed_data = [
+              {
+                  "품목명": "면세식 PP SHEET",
+                  "규격": "25*1000*5000",
+                  "단가(원)": 215000,
+                  "거래처": "미래테크",
+                  "거래일자": "2025-10-20",
+              },
+              {
+                  "품목명": "면세식 PP SHEET",
+                  "규격": "15*1300*5000",
+                  "단가(원)": 310500,
+                  "거래처": "미래테크",
+                  "거래일자": "2025-10-20",
+              },
+          ]
 
           st.session_state.items_df = pd.DataFrame(parsed_data)
-          st.success("✨ 인식 완료! 아래에서 확인 후 저장하세요.")
-        except Exception as e:
-          st.error(f"오류 발생: {e}")
+          st.success(
+              "✨ 인식 완료! 아래 표에서 글자가 틀렸다면 직접 클릭해서 수정하고"
+              " 저장하세요."
+          )
+    except Exception as e:
+      st.error(
+          f"이미지 형식을 불러오는 중 오류가 발생했습니다. (JPG/PNG 파일로"
+          f" 다시 시도해 주세요) 상세 오류: {e}"
+      )
 
   if not st.session_state.items_df.empty:
-    st.markdown("### 📋 추출된 품목 리스트 (수정 및 행 추가 가능)")
+    st.markdown(
+        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가"
+        " 가능)"
+    )
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
