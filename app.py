@@ -44,19 +44,22 @@ def save_data(df):
 
 # --- [이미지 전처리 및 OCR 분석 함수] ---
 def process_and_extract(image):
-    # 1. 이미지를 흑백으로 변환하고 대조(대비)를 높여 글자를 선명하게 만듦
+    # 1. 스마트폰 사진의 회전 방향(EXIF) 자동 보정
+    image = ImageOps.exif_transpose(image)
+    
+    # 2. 흑백 변환 및 대비(크게) 강화로 글자 선명하게 만들기
     gray_image = ImageOps.grayscale(image)
     enhancer = ImageEnhance.Contrast(gray_image)
-    sharp_image = enhancer.enhance(2.0)  # 대비 2배 강화
+    sharp_image = enhancer.enhance(2.5)
     
-    # 2. Tesseract OCR 실행 (PSM 6: 균일한 단일 텍스트 블록 가정)
+    # 3. Tesseract OCR 실행
     custom_config = r'--psm 6'
     raw_text = pytesseract.image_to_string(sharp_image, lang='kor+eng', config=custom_config)
     
     parsed = {'item_name': '', 'spec': '', 'price': 0, 'supplier': ''}
     lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
     
-    # 단가 추출 (숫자 패턴)
+    # 단가 추출
     numbers = re.findall(r'\b\d{1,3}(?:[,\.]\d{3})*\b|\b\d{3,8}\b', raw_text)
     valid_prices = []
     for num in numbers:
@@ -81,7 +84,7 @@ def process_and_extract(image):
         if len(filtered_lines) > 1:
             parsed['spec'] = filtered_lines[1]
             
-    return parsed, raw_text
+    return parsed, raw_text, image
 
 df = load_data()
 
@@ -102,17 +105,19 @@ with tab1:
     uploaded_file = st.file_uploader("거래명세서 사진 업로드", type=["png", "jpg", "jpeg"])
     
     if uploaded_file is not None:
-        col_img, col_info = st.columns([1, 2])
-        image = Image.open(uploaded_file)
+        raw_img = Image.open(uploaded_file)
+        # 업로드 직후 회전 방향 바로잡기 적용
+        corrected_img = ImageOps.exif_transpose(raw_img)
         
+        col_img, col_info = st.columns([1, 2])
         with col_img:
-            st.image(image, caption="업로드된 사진", width=250)
+            st.image(corrected_img, caption="보정된 사진", width=300)
             
         with col_info:
             if st.button("⚡ 사진 분석하고 입력창에 채우기"):
                 with st.spinner("AI 분석 중..."):
                     try:
-                        extracted, raw_text = process_and_extract(image)
+                        extracted, raw_text, _ = process_and_extract(raw_img)
                         
                         st.session_state['form_data']['item_name'] = extracted['item_name']
                         st.session_state['form_data']['spec'] = extracted['spec']
