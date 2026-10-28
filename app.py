@@ -114,7 +114,7 @@ with tab1:
     if search_query.strip() != "":
       q = search_query.strip().lower()
       
-      # 스텐, sts, sus 동의어 상호 자동 변환 검색어 리스트 구성
+      # 스텐, sts, sus 동의어 통합 검색 지원
       search_terms = set([q])
       if any(k in q for k in ['스텐', 'sus', 'sts']):
         search_terms.update(['스텐', 'sus', 'sts'])
@@ -159,7 +159,7 @@ with tab1:
     st.warning("등록된 데이터가 없습니다. 상단의 탭에서 명세서를 등록해 주세요!")
 
 with tab2:
-  st.subheader("거래명세서 사진 업로드 및 등록 보조")
+  st.subheader("거래명세서 사진 업로드 및 범용 OCR 자동 인식")
 
   uploaded_file = st.file_uploader(
       "거래명세서 사진", type=["png", "jpg", "jpeg"]
@@ -178,37 +178,75 @@ with tab2:
         image = image.convert("RGB")
       st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-      if st.button("🔍 사진 분석 및 품목 불러오기"):
-        with st.spinner("명세서 내용을 분석하는 중입니다..."):
+      if st.button("🔍 사진 분석 및 품목 추출 실행"):
+        with st.spinner("명세서에서 거래처 및 품목을 분석하는 중입니다..."):
           extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          # 업로드된 이미지 텍스트에 따라 공급처 및 품목 자동 판별
-          if "전주배관" in extracted_text or "스텐후렌지" in extracted_text:
-            parsed_items = [
-                {"품목명": "스텐후렌지", "규격": "25A", "단가(원)": 17000, "거래처": "전주배관", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "스텐레듀샤용접", "규격": "25*20A", "단가(원)": 4370, "거래처": "전주배관", "거래일자": datetime.today().strftime('%Y-%m-%d')}
-            ]
-          else:
-            parsed_items = [
-                {"품목명": "SUS후렌지 10K FF", "규격": "25A", "단가(원)": 11500, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "SUS후렌지 10K FF", "규격": "40A", "단가(원)": 13100, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "SUS후렌지 10K FF", "규격": "100A", "단가(원)": 24700, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "테프론 후렌지 박킹RF", "규격": "25A", "단가(원)": 1300, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "테프론 후렌지 박킹RF", "규격": "40A", "단가(원)": 1651, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "테프론 후렌지 박킹RF", "규격": "100A", "단가(원)": 3926, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "용접 SUS RS", "규격": "100*32A", "단가(원)": 30200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "용접 SUS RS", "규격": "100*40A", "단가(원)": 25200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')}
-            ]
+          # 1. 거래처 이름 동적 추출 시도 (상호: 또는 일반 텍스트 내 유추)
+          supplier = "일반 거래처"
+          lines = [line.strip() for line in extracted_text.split("\n") if line.strip()]
+          for line in lines:
+            if "상호" in line or "공급자" in line:
+              parts = line.split()
+              for p in parts:
+                if p not in ["상호", ":", "(법인명)", "공급자"]:
+                  supplier = p
+                  break
+
+          # 2. 범용 품목 및 단가 추출 로직 (숫자/금액 패턴이 있는 행 탐색)
+          parsed_items = []
+          for line in lines:
+            # 합계나 은행명 등 불필요한 줄 제외
+            if any(k in line for k in ['합계', '금액', '전일잔액', '세액', '은행', 'TEL', 'FAX', '등록번호', '주소', '상호', '공급자', '잔액', '입금']):
+              continue
+
+            # 쉼표가 포함된 금액 혹은 일반 가격 숫자 패턴 찾기
+            numbers = re.findall(r'\b\d{1,3}(?:,\d{3})+\b|\b\d{3,8}\b', line)
+            if numbers:
+              try:
+                # 마지막 숫자를 단가/금액으로 간주
+                price_val = float(numbers[-1].replace(',', ''))
+                if price_val > 100:  # 터무니없는 소수점이나 작은 숫자는 제외
+                  # 품목명 추출 (숫자 제거)
+                  clean_name = line
+                  for num in numbers:
+                    clean_name = clean_name.replace(num, '')
+                  # 수량 패턴(예: 4.00 또는 4) 제거
+                  clean_name = re.sub(r'\b\d+\.\d{2}\b|\b\d+\b', '', clean_name).strip()
+                  clean_name = re.sub(r'^[0-9ㅇO\-\.\s]+', '', clean_name).strip()
+
+                  if len(clean_name) < 1:
+                    clean_name = "인식된 품목"
+
+                  parsed_items.append({
+                      "품목명": clean_name,
+                      "규격": "규격 참조",
+                      "단가(원)": price_val,
+                      "거래처": supplier,
+                      "거래일자": datetime.today().strftime('%Y-%m-%d')
+                  })
+              except:
+                pass
+
+          # 만약 자동 추출된 항목이 없으면 사용자가 직접 입력하도록 빈 행 제공
+          if not parsed_items:
+            parsed_items = [{
+                "품목명": "",
+                "규격": "",
+                "단가(원)": 0,
+                "거래처": supplier,
+                "거래일자": datetime.today().strftime('%Y-%m-%d')
+            }]
 
           st.session_state.items_df = pd.DataFrame(parsed_items)
-          st.success("✨ 명세서 품목 불러오기 완료! 아래 표에서 내용을 확인하고 저장하세요.")
+          st.success("✨ 분석 완료! 아래 표에서 추출된 내용을 확인하고 필요한 부분을 수정하세요.")
     except Exception as e:
       st.error(f"이미지 처리 중 오류 발생: {e}")
 
   if not st.session_state.items_df.empty:
-    st.markdown("### 📋 등록할 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)")
+    st.markdown("### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)")
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
