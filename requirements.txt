@@ -1,4 +1,5 @@
-google-genai
-Pillow
-pandas
 streamlit
+pandas
+Pillow
+requests
+google-genai
