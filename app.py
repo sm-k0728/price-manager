@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps
 
 # 페이지 설정
 st.set_page_config(page_title="거래명세서 단가 관리 프로그램", layout="wide")
@@ -20,19 +20,23 @@ with tab1:
     st.subheader("1. 📷 사진 업로드 및 텍스트 추출")
     uploaded_file = st.file_uploader("영수증/거래명세서 사진 업로드", type=["png", "jpg", "jpeg"])
     
-    extracted_text = ""
     if uploaded_file is not None:
-        image = Image.open(uploaded_file)
-        st.image(image, caption="업로드된 사진", width=300)
-        
-        if st.button("🔍 텍스트 추출하기"):
-            with st.spinner("텍스트 추출 중..."):
-                try:
+        try:
+            # 이미지 포맷 에러 방지용 안전 변환
+            image = Image.open(uploaded_file)
+            image = ImageOps.exif_transpose(image)
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+                
+            st.image(image, caption="업로드된 사진", width=300)
+            
+            if st.button("🔍 텍스트 추출하기"):
+                with st.spinner("텍스트 추출 중..."):
                     extracted_text = pytesseract.image_to_string(image, lang='kor+eng')
                     st.session_state['raw_text'] = extracted_text
                     st.success("추출 완료!")
-                except Exception as e:
-                    st.error(f"오류 발생: {e}")
+        except Exception as e:
+            st.error(f"오류 발생: {e}")
 
     if 'raw_text' in st.session_state:
         st.subheader("📌 추출된 원본 텍스트")
