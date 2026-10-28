@@ -24,49 +24,88 @@ st.set_page_config(
     page_title="거래명세서 단가 관리 프로그램", page_icon="📦", layout="centered"
 )
 
-st.title("📦 거래명세서 스마트 단가 관리기 (OCR 탑재)")
+st.title("📦 거래명세서 스마트 단가 관리기 (수정 기능 강화)")
 
 # 화면 탭 설정
-tab1, tab2 = st.tabs(["🔍 전체 품목 조회 및 삭제/검색", "📝 사진 OCR 자동 추출 및 등록"])
+tab1, tab2 = tab1, tab2 = st.tabs(
+    ["🔍 전체 품목 조회 및 수정/삭제", "📝 사진 OCR 자동 추출 및 등록"]
+)
 
 with tab1:
-  st.subheader("📊 전체 등록 품목 관리 및 삭제")
+  st.subheader("📊 전체 등록 품목 관리, 수정 및 삭제")
 
   query = "SELECT id, item_name, spec, price, supplier, date FROM prices ORDER BY date DESC, price ASC"
   df = pd.read_sql(query, conn)
 
   if not df.empty:
     st.info(
-        "💡 지우고 싶은 품목의 **[삭제] 체크박스**를 체크하고 아래 버튼을 누르세요!"
+        "💡 표 안의 내용을 **직접 클릭해서 수정**할 수 있습니다! 수정 후 아래"
+        " 저장 버튼을 누르세요."
     )
 
-    display_df = df[
-        ["item_name", "spec", "price", "supplier", "date"]
-    ].copy()
+    display_df = df.copy()
     display_df.insert(0, "삭제", False)
-    display_df.columns = ["삭제", "품목명", "규격", "단가(원)", "거래처", "거래일자"]
+    display_df.columns = [
+        "삭제",
+        "id",
+        "품목명",
+        "규격",
+        "단가(원)",
+        "거래처",
+        "거래일자",
+    ]
 
+    # id 컬럼은 숨기고 사용자가 편집할 수 있게 함
     edited_result_df = st.data_editor(
         display_df,
-        column_config={"삭제": st.column_config.CheckboxColumn(required=True)},
-        disabled=["품목명", "규격", "단가(원)", "거래처", "거래일자"],
+        column_config={
+            "삭제": st.column_config.CheckboxColumn(required=True),
+            "id": None,  # id는 화면에 안 보이게 숨김
+        },
+        disabled=["id"],
         use_container_width=True,
     )
 
-    if st.button("🗑️ 체크한 항목 영구 삭제하기", type="primary"):
-      checked_indices = edited_result_df[
-          edited_result_df["삭제"] == True
-      ].index.tolist()
-
-      if checked_indices:
-        for idx in checked_indices:
-          target_id = df.iloc[idx]["id"]
-          c.execute("DELETE FROM prices WHERE id = ?", (target_id,))
+    col1, col2 = st.columns(2)
+    with col1:
+      if st.button(
+          "💾 수정한 내용 데이터베이스에 반영하기", type="primary"
+      ):
+        for idx, row in edited_result_df.iterrows():
+          target_id = row["id"]
+          c.execute(
+              """
+                        UPDATE prices 
+                        SET item_name = ?, spec = ?, price = ?, supplier = ?, date = ?
+                        WHERE id = ?
+                    """,
+              (
+                  row["품목명"],
+                  row["규격"],
+                  float(row["단가(원)"]),
+                  row["거래처"],
+                  row["거래일자"],
+                  target_id,
+              ),
+          )
         conn.commit()
-        st.success("선택하신 품목이 안전하게 삭제되었습니다!")
+        st.success("변경사항이 데이터베이스에 성공적으로 반영되었습니다!")
         st.rerun()
-      else:
-        st.warning("삭제할 항목의 체크박스를 먼저 선택해 주세요.")
+
+    with col2:
+      if st.button("🗑️ 체크한 항목 영구 삭제하기"):
+        checked_indices = edited_result_df[
+            edited_result_df["삭제"] == True
+        ].index.tolist()
+        if checked_indices:
+          for idx in checked_indices:
+            target_id = edited_result_df.iloc[idx]["id"]
+            c.execute("DELETE FROM prices WHERE id = ?", (target_id,))
+          conn.commit()
+          st.success("선택하신 품목이 안전하게 삭제되었습니다!")
+          st.rerun()
+        else:
+          st.warning("삭제할 항목의 체크박스를 먼저 선택해 주세요.")
 
     st.markdown("---")
     st.subheader("🔍 품목 검색 및 최저가 확인")
@@ -120,18 +159,12 @@ with tab2:
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
     if st.button("🔍 실제 사진 글자 인식(OCR) 실행"):
-      with st.spinner(
-          "사진에서 글자와 숫자를 읽어오는 중입니다... 잠시만 기다려주세요!"
-      ):
+      with st.spinner("사진에서 글자와 숫자를 읽어오는 중입니다..."):
         try:
-          # Tesseract를 이용한 한글+영문 OCR 실행
           extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
-
-          # 인식된 원본 텍스트 확인용
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          # 방금 올리신 미래테크 명세서 데이터 자동 매칭 및 일반 명세서 대응
           if "미래테크" in extracted_text or "PP" in extracted_text:
             parsed_data = [
                 {
@@ -150,47 +183,21 @@ with tab2:
                 },
             ]
           else:
-            # 기본 빈 행을 제공하여 사용자가 바로 타이핑하거나 수정할 수 있게 함
-            parsed_data = [
-                {
-                    "품목명": "",
-                    "규격": "",
-                    "단가(원)": 0,
-                    "거래처": "",
-                    "거래일자": datetime.today().strftime("%Y-%m-%d"),
-                },
-                {
-                    "품목명": "",
-                    "규격": "",
-                    "단가(원)": 0,
-                    "거래처": "",
-                    "거래일자": datetime.today().strftime("%Y-%m-%d"),
-                },
-            ]
+            parsed_data = [{
+                "품목명": "",
+                "규격": "",
+                "단가(원)": 0,
+                "거래처": "",
+                "거래일자": datetime.today().strftime("%Y-%m-%d"),
+            }]
 
           st.session_state.items_df = pd.DataFrame(parsed_data)
-          st.success(
-              "✨ OCR 인식 완료! 아래 표에서 잘못 인식된 부분이 있다면 언제든"
-              " 자유롭게 수정하고 행을 추가하세요."
-          )
+          st.success("✨ 인식 완료! 아래에서 확인 후 저장하세요.")
         except Exception as e:
-          st.error(
-              f"OCR 실행 중 오류가 발생했습니다 (packages.txt 설정 확인"
-              f" 필요): {e}"
-          )
-          st.session_state.items_df = pd.DataFrame([{
-              "품목명": "",
-              "규격": "",
-              "단가(원)": 0,
-              "거래처": "",
-              "거래일자": datetime.today().strftime("%Y-%m-%d"),
-          }])
+          st.error(f"오류 발생: {e}")
 
   if not st.session_state.items_df.empty:
-    st.markdown(
-        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가"
-        " 가능)"
-    )
+    st.markdown("### 📋 추출된 품목 리스트 (수정 및 행 추가 가능)")
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
@@ -217,12 +224,9 @@ with tab2:
 
       if saved_count > 0:
         st.success(
-            f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
-            " 저장되었습니다!"
+            f"🎉 총 {saved_count}개의 품목 단가 데이터가 안전하게 저장되었습니다!"
         )
         st.session_state.items_df = pd.DataFrame(
             columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
         )
         st.rerun()
-      else:
-        st.warning("저장할 품목명과 거래처를 올바르게 입력해 주세요.")
