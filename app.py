@@ -183,41 +183,47 @@ with tab2:
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          # 1. 거래처 동적 추출 (상호명 탐색)
+          lines = [line.strip() for line in extracted_text.split("\n") if line.strip()]
+          
+          # 1. 거래처 동적 추출
           supplier = "거래처"
-          for line in extracted_text.split("\n"):
-            if "상호" in line or "배관" in line or "테크" in line or "상사" in line:
+          for line in lines:
+            if any(k in line for k in ["상호", "공급자", "배관", "상사", "테크"]):
               parts = line.split()
               for p in parts:
                 if p not in ["상호", ":", "(법인명)", "공급자", "사업장", "귀하", "업태", "종목"]:
                   if len(p) >= 2:
                     supplier = p
                     break
-
           if "전주배관" in extracted_text:
             supplier = "전주배관"
           elif "미래테크" in extracted_text:
             supplier = "미래테크"
 
-          # 2. 텍스트 내 금액(콤마 포함 숫자)이 포함된 유효 행 분석
+          # 2. 유연한 금액 및 품목 추출 엔진 (콤마, 점, 공백이 포함된 가격 숫자 포착)
           parsed_items = []
-          for line in extracted_text.split("\n"):
-            line = line.strip()
-            if not line:
-              continue
-            # 제외할 키워드
-            if any(k in line for k in ['합계', '전일잔액', '잔액', '입금', '농협', '은행', 'TEL', 'FAX', '등록번호', '주소', '이하여백', '인수자', '세액']):
+          for line in lines:
+            if any(k in line for k in ['합계', '전일잔액', '잔액', '입금', '농협', '은행', 'TEL', 'FAX', '등록번호', '주소', '이하여백', '인수자', '세액', '개인']):
               continue
 
-            # 콤마가 포함된 금액 숫자 찾기 (예: 17,000, 4,370 등)
-            prices = re.findall(r'\b\d{1,3}(?:,\d{3})+\b', line)
-            if prices:
+            # 숫자 패턴 찾기 (콤마나 점이 포함된 4자리 이상 숫자 혹은 일반 단가 숫자)
+            # 예: 17,000 / 17.000 / 4,370 등
+            price_candidates = re.findall(r'\b\d{1,3}(?:[,.\s]\d{3})+\b|\b\d{3,7}\b', line)
+            
+            if price_candidates:
               try:
-                price_val = float(prices[0].replace(',', ''))
-                if price_val > 50:
+                # 후보군 중 가장 적절한 단가형 숫자 선택 (보통 1,000원 이상)
+                valid_price = 0
+                for cand in price_candidates:
+                  clean_num = float(cand.replace(',', '').replace('.', '').replace(' ', ''))
+                  if clean_num >= 100:  # 유효 단가 기준
+                    valid_price = clean_num
+                    break
+
+                if valid_price > 0:
                   clean_line = line
-                  for p in prices:
-                    clean_line = clean_line.replace(p, '')
+                  for cand in price_candidates:
+                    clean_line = clean_line.replace(cand, '')
 
                   # 규격 패턴 찾기 (예: 25A, 25*20A 등)
                   spec_match = re.search(r'\b\d+[A-Z]*\b|\b\d+\*\d+[A-Z]*\b', clean_line)
@@ -225,7 +231,7 @@ with tab2:
                   if spec_match:
                     clean_line = clean_line.replace(spec_match.group(0), '')
 
-                  # 날짜 앞머리 및 불필요 기호 제거
+                  # 날짜 및 불필요한 기호 제거
                   clean_line = re.sub(r'^\d{2}\.\d{2}\b', '', clean_line).strip()
                   clean_line = re.sub(r'^[0-9ㅇO\-\.\s]+', '', clean_line).strip()
 
@@ -235,31 +241,25 @@ with tab2:
                   parsed_items.append({
                       "품목명": clean_line,
                       "규격": spec,
-                      "단가(원)": price_val,
+                      "단가(원)": valid_price,
                       "거래처": supplier if supplier != "거래처" else "일반거래처",
                       "거래일자": "2026-09-12" if "09.12" in line else datetime.today().strftime('%Y-%m-%d')
                   })
               except:
                 pass
 
-          # 만약 자동 추출이 안 되었을 때의 안전 장치 (전주배관 명세서 내용 직접 매핑)
+          # 최종 안전 장치 (만약 추출에 실패하더라도 빈 표가 아니라 수정 가능한 행 제공)
           if not parsed_items:
-            if "스텐후렌지" in extracted_text or "스텐레듀샤" in extracted_text:
-              parsed_items = [
-                  {"품목명": "스텐후렌지", "규격": "25A", "단가(원)": 17000, "거래처": "전주배관", "거래일자": "2026-09-12"},
-                  {"품목명": "스텐레듀샤용접", "규격": "25*20A", "단가(원)": 4370, "거래처": "전주배관", "거래일자": "2026-09-12"}
-              ]
-            else:
-              parsed_items = [{
-                  "품목명": "직접 입력 필요",
-                  "규격": "-",
-                  "단가(원)": 0,
-                  "거래처": supplier,
-                  "거래일자": datetime.today().strftime('%Y-%m-%d')
-              }]
+            parsed_items = [{
+                "품목명": "품목 직접 수정",
+                "규격": "-",
+                "단가(원)": 0,
+                "거래처": supplier,
+                "거래일자": datetime.today().strftime('%Y-%m-%d')
+            }]
 
           st.session_state.items_df = pd.DataFrame(parsed_items)
-          st.success("✨ 품목 분석 완료! 아래 표에서 내용을 확인하고 저장하세요.")
+          st.success("✨ 분석 완료! 아래 표에서 품목과 단가를 확인하고 수정해 주세요.")
     except Exception as e:
       st.error(f"이미지 처리 중 오류 발생: {e}")
 
