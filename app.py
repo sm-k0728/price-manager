@@ -2,135 +2,64 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import pytesseract
-from PIL import Image, ImageOps
-import re
+from PIL import Image
 
 # 페이지 설정
 st.set_page_config(page_title="거래명세서 단가 관리 프로그램", layout="wide")
 
-# 세션 상태 초기화
+# 세션 상태로 임시 데이터 저장 (메모리 DB)
 if 'db' not in st.session_state:
     st.session_state['db'] = pd.DataFrame(columns=['item_name', 'spec', 'price', 'supplier', 'date'])
 
-if 'form_data' not in st.session_state:
-    st.session_state['form_data'] = {
-        'item_name': '', 'spec': '', 'price': 0, 'supplier': '', 'date': datetime.today()
-    }
-
-def parse_ocr_text(text):
-    parsed = {'item_name': '', 'spec': '', 'price': 0, 'supplier': ''}
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
-    
-    # 1. 단가 추출 (숫자 패턴 중 100원 ~ 500만원 사이 값)
-    numbers = re.findall(r'\b\d{1,3}(?:[,\.]\d{3})*\b|\b\d{3,8}\b', text)
-    valid_prices = []
-    for num in numbers:
-        clean_num = int(re.sub(r'[^\d]', '', num))
-        if 100 <= clean_num <= 5000000:
-            valid_prices.append(clean_num)
-    if valid_prices:
-        # 일반적으로 거래명세서 단가/금액란에 나오는 유효한 숫자 선택
-        parsed['price'] = valid_prices[0]
-
-    # 2. 공급처(상호) 추출
-    for line in lines:
-        if any(keyword in line for keyword in ['상호', '공급자', '업체', '(주)', '주식회사', '상사', '유통', '미래테크']):
-            clean_line = re.sub(r'(상호|공급자|업체명|:|\(|\))', '', line).strip()
-            if clean_line:
-                parsed['supplier'] = clean_line
-                break
-
-    # 만약 키워드로 못 찾았다면 상단 영역의 사업자 상호 추정
-    if not parsed['supplier'] and len(lines) > 0:
-        for line in lines[:5]:
-            if len(line) >= 2 and not any(k in line for k in ['거래명세서', '등록번호', '사업자', '주소', 'TEL']):
-                parsed['supplier'] = line
-                break
-
-    # 3. 품목명 및 규격 추출 (한글이 포함된 유의미한 줄 탐색)
-    korean_lines = [l for l in lines if re.search(r'[가-힣]', l) and not any(k in l for k in ['공급자', '합계', '금액', '사업자', '날짜', '전화', '주소', '등록번호', '거래명세서'])]
-    
-    if korean_lines:
-        parsed['item_name'] = korean_lines[0]
-        if len(korean_lines) > 1:
-            parsed['spec'] = korean_lines[1]
-    elif lines:
-        # 한글을 못 찾았을 경우 첫 번째 줄 대체
-        parsed['item_name'] = lines[0]
-            
-    return parsed
-
-st.title("📦 거래명세서 단가 관리 프로그램 (텍스트 보정 버전)")
-st.markdown("사진을 올리고 버튼을 누르면 품목명과 단가가 자동으로 채워집니다!")
+st.title("📦 거래명세서 단가 관리 프로그램 (초기 기본 버전)")
+st.markdown("가장 가볍고 단순하게 작동하는 기본 테스트 화면입니다.")
 
 tab1, tab2 = st.tabs(["📝 단가 등록 / 수정", "📊 단가 DB 조회"])
 
 with tab1:
-    st.subheader("1. 📷 사진 업로드 및 자동 분석")
+    st.subheader("1. 📷 사진 업로드 및 텍스트 추출")
     uploaded_file = st.file_uploader("영수증/거래명세서 사진 업로드", type=["png", "jpg", "jpeg"])
     
+    extracted_text = ""
     if uploaded_file is not None:
-        try:
-            image = Image.open(uploaded_file)
-            image = ImageOps.exif_transpose(image)
-            if image.mode != 'RGB':
-                image = image.convert('RGB')
-                
-            st.image(image, caption="업로드된 사진", width=300)
-            
-            if st.button("⚡ 사진 분석하고 입력창에 채우기"):
-                with st.spinner("텍스트 추출 및 분석 중..."):
-                    # OCR 실행 (한글+영문 동시 지정)
-                    text = pytesseract.image_to_string(image, lang='kor+eng')
-                    extracted = parse_ocr_text(text)
-                    
-                    st.session_state['form_data']['item_name'] = extracted['item_name']
-                    st.session_state['form_data']['spec'] = extracted['spec']
-                    st.session_state['form_data']['price'] = extracted['price']
-                    st.session_state['form_data']['supplier'] = extracted['supplier']
-                    st.session_state['extracted_text'] = text
-                    
-                    st.success("✨ 분석 완료! 아래 입력창을 확인해 주세요.")
-        except Exception as e:
-            st.error(f"오류 발생: {e}")
+        image = Image.open(uploaded_file)
+        st.image(image, caption="업로드된 사진", width=300)
+        
+        if st.button("🔍 텍스트 추출하기"):
+            with st.spinner("텍스트 추출 중..."):
+                try:
+                    extracted_text = pytesseract.image_to_string(image, lang='kor+eng')
+                    st.session_state['raw_text'] = extracted_text
+                    st.success("추출 완료!")
+                except Exception as e:
+                    st.error(f"오류 발생: {e}")
 
-    if 'extracted_text' in st.session_state:
-        with st.expander("🔍 OCR 원본 텍스트 전체보기"):
-            st.text(st.session_state['extracted_text'])
+    if 'raw_text' in st.session_state:
+        st.subheader("📌 추출된 원본 텍스트")
+        st.text_area("OCR 결과", st.session_state['raw_text'], height=150)
 
     st.markdown("---")
-    st.subheader("2. ✍️ 정보 확인 및 임시 저장")
+    st.subheader("2. ✍️ 데이터 입력 및 저장")
 
-    with st.form("test_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            item_name = st.text_input("품목명", value=st.session_state['form_data']['item_name'])
-            price = st.number_input("단가", min_value=0, step=100, value=int(st.session_state['form_data']['price']))
-            supplier = st.text_input("공급처", value=st.session_state['form_data']['supplier'])
-        with col2:
-            spec = st.text_input("규격", value=st.session_state['form_data']['spec'])
-            date = st.date_input("등록일자", value=st.session_state['form_data']['date'])
-            
-        submitted = st.form_submit_button("임시 저장하기")
+    with tab1_form := st.form("basic_form"):
+        item_name = st.text_input("품목명")
+        spec = st.text_input("규격")
+        price = st.number_input("단가", min_value=0, step=100)
+        supplier = st.text_input("공급처")
+        date = st.date_input("등록일자", value=datetime.today())
+        
+        submitted = st.form_submit_button("저장하기")
         if submitted:
-            if not item_name.strip():
-                st.warning("품목명을 입력해주세요!")
-            else:
-                new_row = pd.DataFrame({
-                    'item_name': [item_name],
-                    'spec': [spec],
-                    'price': [price],
-                    'supplier': [supplier],
-                    'date': [str(date)]
-                })
-                st.session_state['db'] = pd.concat([st.session_state['db'], new_row], ignore_index=True)
-                st.success(f"🎉 [{item_name}] 저장 완료!")
-                
-                st.session_state['form_data'] = {
-                    'item_name': '', 'spec': '', 'price': 0, 'supplier': '', 'date': datetime.today()
-                }
-                st.rerun()
+            new_row = pd.DataFrame({
+                'item_name': [item_name],
+                'spec': [spec],
+                'price': [price],
+                'supplier': [supplier],
+                'date': [str(date)]
+            })
+            st.session_state['db'] = pd.concat([st.session_state['db'], new_row], ignore_index=True)
+            st.success("저장되었습니다!")
 
 with tab2:
-    st.subheader("📊 임시 저장된 DB 목록")
+    st.subheader("📊 저장된 DB 목록")
     st.dataframe(st.session_state['db'], use_container_width=True)
