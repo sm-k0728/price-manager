@@ -1,7 +1,7 @@
 from datetime import datetime
 import sqlite3
 import pandas as pd
-from PIL import Image
+from PIL import Image, ImageOps
 import pytesseract
 import streamlit as st
 
@@ -155,8 +155,9 @@ with tab2:
 
   if uploaded_file is not None:
     try:
-      # 이미지 형식이 달라도 RGB로 안전하게 변환
+      # 이미지 형식 및 회전 방향 안전하게 보정 (에러 원인 차단)
       image = Image.open(uploaded_file)
+      image = ImageOps.exif_transpose(image)
       if image.mode != "RGB":
         image = image.convert("RGB")
       st.image(image, caption="업로드된 거래명세서", use_container_width=True)
@@ -167,7 +168,7 @@ with tab2:
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          # 미래테크 명세서 또는 일반 입력 대응 기본 구조
+          # 기본 파싱 구조
           parsed_data = [
               {
                   "품목명": "면세식 PP SHEET",
