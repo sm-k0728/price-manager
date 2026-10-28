@@ -5,6 +5,7 @@ import os
 import sqlite3
 import time
 from google import genai
+from google.genai import types
 import pandas as pd
 from PIL import Image, ImageOps
 import streamlit as st
@@ -216,15 +217,19 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 이미지 용량 최적화 (빠른 전송)
+            # 이미지 용량 압축 및 바이트 데이터 추출 (멈춤 방지 핵심)
             image.thumbnail((1024, 1024))
             buffered = io.BytesIO()
-            image.save(buffered, format="JPEG", quality=85)
+            image.save(buffered, format="JPEG", quality=80)
             img_byte = buffered.getvalue()
 
-            # 안전한 재시도 및 타임아웃 방지 호출
+            # types.Part를 이용해 바이트 스트림으로 안전하게 전송
+            image_part = types.Part.from_bytes(
+                data=img_byte, mime_type="image/jpeg"
+            )
+
             response = client.models.generate_content(
-                model="gemini-3.8-flash", contents=[image, prompt]
+                model="gemini-3.8-flash", contents=[image_part, prompt]
             )
 
             if response and response.text:
