@@ -69,7 +69,7 @@ with tab1:
 
     st.markdown("---")
     st.subheader("🔍 품목 검색 및 최저가 확인")
-    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, sheet, 면세식)", "")
+    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, sheet)", "")
 
     if search_query.strip() != "":
       q = search_query.strip().lower()
@@ -121,7 +121,6 @@ with tab2:
     image = Image.open(uploaded_file)
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    # 버튼을 누르면 방금 올리신 실제 명세서(미래테크 PP SHEET) 데이터가 자동으로 쏙쏙 입력됨
     if st.button("🚀 사진 스마트 분석 및 품목 일괄 추출"):
       extracted_data = [
           {
@@ -145,4 +144,41 @@ with tab2:
           " 확인 후 저장하세요."
       )
 
-  if not st.session_state.items_df.empty
+  # 여기가 수정된 부분입니다 (끝에 콜론 추가!)
+  if not st.session_state.items_df.empty:
+    st.markdown("### 📋 추출된 품목 리스트 (수정 및 행 추가 가능)")
+    edited_df = st.data_editor(
+        st.session_state.items_df, num_rows="dynamic", use_container_width=True
+    )
+
+    if st.button("💾 모든 품목 데이터베이스에 일괄 저장하기"):
+      saved_count = 0
+      for idx, row in edited_df.iterrows():
+        if row["품목명"] and row["거래처"]:
+          c.execute(
+              """
+                        INSERT INTO prices (item_name, spec, price, supplier, date)
+                        VALUES (?, ?, ?, ?, ?)
+                    """,
+              (
+                  row["품목명"],
+                  row["규격"],
+                  float(row["단가(원)"]),
+                  row["거래처"],
+                  row["거래일자"],
+              ),
+          )
+          saved_count += 1
+      conn.commit()
+
+      if saved_count > 0:
+        st.success(
+            f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
+            " 저장되었습니다!"
+        )
+        st.session_state.items_df = pd.DataFrame(
+            columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
+        )
+        st.rerun()
+      else:
+        st.warning("저장할 품목명과 거래처를 올바르게 입력해 주세요.")
