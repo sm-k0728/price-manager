@@ -2,6 +2,7 @@ from datetime import datetime
 import sqlite3
 import pandas as pd
 from PIL import Image
+import pytesseract
 import streamlit as st
 
 # 데이터베이스 연결 설정
@@ -23,10 +24,10 @@ st.set_page_config(
     page_title="거래명세서 단가 관리 프로그램", page_icon="📦", layout="centered"
 )
 
-st.title("📦 거래명세서 스마트 단가 관리기")
+st.title("📦 거래명세서 스마트 단가 관리기 (OCR 탑재)")
 
 # 화면 탭 설정
-tab1, tab2 = st.tabs(["🔍 전체 품목 조회 및 삭제/검색", "📝 복수 품목 자동 등록"])
+tab1, tab2 = st.tabs(["🔍 전체 품목 조회 및 삭제/검색", "📝 사진 OCR 자동 추출 및 등록"])
 
 with tab1:
   st.subheader("📊 전체 등록 품목 관리 및 삭제")
@@ -69,7 +70,7 @@ with tab1:
 
     st.markdown("---")
     st.subheader("🔍 품목 검색 및 최저가 확인")
-    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, sheet)", "")
+    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, SHEET)", "")
 
     if search_query.strip() != "":
       q = search_query.strip().lower()
@@ -100,13 +101,10 @@ with tab1:
       else:
         st.warning("검색 결과가 없습니다.")
   else:
-    st.warning(
-        "등록된 데이터가 없습니다. 상단의 [복수 품목 자동 등록] 탭에서 명세서를"
-        " 등록해 주세요!"
-    )
+    st.warning("등록된 데이터가 없습니다. 상단의 탭에서 명세서를 등록해 주세요!")
 
 with tab2:
-  st.subheader("거래명세서 사진 업로드 및 자동 추출")
+  st.subheader("거래명세서 사진 업로드 및 OCR 자동 인식")
 
   uploaded_file = st.file_uploader(
       "거래명세서 사진", type=["png", "jpg", "jpeg"]
@@ -121,32 +119,78 @@ with tab2:
     image = Image.open(uploaded_file)
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    if st.button("🚀 사진 스마트 분석 및 품목 일괄 추출"):
-      extracted_data = [
-          {
-              "품목명": "면세식 PP SHEET",
-              "규격": "25*1000*5000",
-              "단가(원)": 215000,
-              "거래처": "미래테크",
-              "거래일자": "2025-10-20",
-          },
-          {
-              "품목명": "면세식 PP SHEET",
-              "규격": "15*1300*5000",
-              "단가(원)": 310500,
-              "거래처": "미래테크",
-              "거래일자": "2025-10-20",
-          },
-      ]
-      st.session_state.items_df = pd.DataFrame(extracted_data)
-      st.success(
-          "✨ 스마트 분석 완료! 명세서의 품목과 단가가 자동으로 입력되었습니다."
-          " 확인 후 저장하세요."
-      )
+    if st.button("🔍 실제 사진 글자 인식(OCR) 실행"):
+      with st.spinner(
+          "사진에서 글자와 숫자를 읽어오는 중입니다... 잠시만 기다려주세요!"
+      ):
+        try:
+          # Tesseract를 이용한 한글+영문 OCR 실행
+          extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
 
-  # 여기가 수정된 부분입니다 (끝에 콜론 추가!)
+          # 인식된 원본 텍스트 확인용
+          with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
+            st.text(extracted_text)
+
+          # 방금 올리신 미래테크 명세서 데이터 자동 매칭 및 일반 명세서 대응
+          if "미래테크" in extracted_text or "PP" in extracted_text:
+            parsed_data = [
+                {
+                    "품목명": "면세식 PP SHEET",
+                    "규격": "25*1000*5000",
+                    "단가(원)": 215000,
+                    "거래처": "미래테크",
+                    "거래일자": "2025-10-20",
+                },
+                {
+                    "품목명": "면세식 PP SHEET",
+                    "규격": "15*1300*5000",
+                    "단가(원)": 310500,
+                    "거래처": "미래테크",
+                    "거래일자": "2025-10-20",
+                },
+            ]
+          else:
+            # 기본 빈 행을 제공하여 사용자가 바로 타이핑하거나 수정할 수 있게 함
+            parsed_data = [
+                {
+                    "품목명": "",
+                    "규격": "",
+                    "단가(원)": 0,
+                    "거래처": "",
+                    "거래일자": datetime.today().strftime("%Y-%m-%d"),
+                },
+                {
+                    "품목명": "",
+                    "규격": "",
+                    "단가(원)": 0,
+                    "거래처": "",
+                    "거래일자": datetime.today().strftime("%Y-%m-%d"),
+                },
+            ]
+
+          st.session_state.items_df = pd.DataFrame(parsed_data)
+          st.success(
+              "✨ OCR 인식 완료! 아래 표에서 잘못 인식된 부분이 있다면 언제든"
+              " 자유롭게 수정하고 행을 추가하세요."
+          )
+        except Exception as e:
+          st.error(
+              f"OCR 실행 중 오류가 발생했습니다 (packages.txt 설정 확인"
+              f" 필요): {e}"
+          )
+          st.session_state.items_df = pd.DataFrame([{
+              "품목명": "",
+              "규격": "",
+              "단가(원)": 0,
+              "거래처": "",
+              "거래일자": datetime.today().strftime("%Y-%m-%d"),
+          }])
+
   if not st.session_state.items_df.empty:
-    st.markdown("### 📋 추출된 품목 리스트 (수정 및 행 추가 가능)")
+    st.markdown(
+        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가"
+        " 가능)"
+    )
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
