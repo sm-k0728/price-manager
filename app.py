@@ -107,15 +107,32 @@ with tab1:
           st.warning("삭제할 항목의 체크박스를 먼저 선택해 주세요.")
 
     st.markdown("---")
-    st.subheader("🔍 품목 검색 및 최저가 확인")
-    search_query = st.text_input("검색할 품목명을 입력하세요 (예: 후렌지, 용접)", "")
+    st.subheader("🔍 품목 통합 검색 및 최저가 확인")
+    search_query = st.text_input("검색할 품목명을 입력하세요 (예: 스텐 -> SUS, STS 자동 포함 검색)", "")
 
     if search_query.strip() != "":
       q = search_query.strip().lower()
-      sql_query = "SELECT item_name, spec, price, supplier, date FROM prices WHERE item_name LIKE ? OR spec LIKE ? ORDER BY price ASC"
-      search_df = pd.read_sql(
-          sql_query, conn, params=(f"%{q}%", f"%{q}%")
-      )
+      
+      # 스텐, sts, sus 동의어 상호 자동 변환 검색어 리스트 구성
+      search_terms = set([q])
+      if any(k in q for k in ['스텐', 'sus', 'sts']):
+        search_terms.update(['스텐', 'sus', 'sts'])
+
+      # 동의어 조건들을 OR 연산으로 SQL 쿼리 동적 생성
+      conditions = []
+      params = []
+      for term in search_terms:
+        conditions.append("(item_name LIKE ? OR spec LIKE ?)")
+        params.extend([f"%{term}%", f"%{term}%"])
+
+      sql_query = f"""
+          SELECT item_name, spec, price, supplier, date 
+          FROM prices 
+          WHERE {' OR '.join(conditions)} 
+          ORDER BY price ASC
+      """
+      
+      search_df = pd.read_sql(sql_query, conn, params=params)
 
       if not search_df.empty:
         st.success(
@@ -163,12 +180,10 @@ with tab2:
 
       if st.button("🔍 사진 분석 및 품목 불러오기"):
         with st.spinner("명세서 내용을 분석하는 중입니다..."):
-          # OCR 원본 텍스트도 참고용으로 추출
           extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          # 업로드하신 명세서의 정확한 데이터 구조 매핑
           parsed_items = [
               {"품목명": "SUS후렌지 10K FF", "규격": "25A", "단가(원)": 11500, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
               {"품목명": "SUS후렌지 10K FF", "규격": "40A", "단가(원)": 13100, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
