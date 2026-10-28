@@ -1,26 +1,12 @@
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import io
 import json
 import os
 import sqlite3
-import time
-from google import genai
-from google.genai import types
 import pandas as pd
 from PIL import Image, ImageOps
+import requests
 import streamlit as st
-
-# ==========================================
-# 🔑 신형 AQ API 키 전용 최신 google-genai 클라이언트 초기화
-# ==========================================
-try:
-  api_key = st.secrets["GEMINI_API_KEY"]
-  client = genai.Client(api_key=api_key)
-  genai_ready = True
-except Exception as e:
-  genai_ready = False
-  client = None
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -195,16 +181,25 @@ with tab2:
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
-      if not genai_ready:
-        st.error(
-            "Streamlit Secrets에 `GEMINI_API_KEY` 설정이 올바른지 확인해"
-            " 주세요."
-        )
+      try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+      except Exception:
+        api_key = None
+
+      if not api_key:
+        st.error("Streamlit Secrets에 `GEMINI_API_KEY`가 설정되지 않았습니다.")
       else:
         with st.spinner(
             "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
         ):
           try:
+            import base64
+
+            image.thumbnail((1024, 1024))
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG", quality=80)
+            img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+
             prompt = """
                         이 거래명세서 이미지에 적힌 품목 표와 공급자 정보를 분석하여 아래 JSON 형식의 리스트로만 추출해 주세요. 다른 설명은 절대 적지 마세요.
                         - item_name: 품목명
@@ -218,53 +213,59 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 이미지 용량 압축
-            image.thumbnail((1024, 1024))
-            buffered = io.BytesIO()
-            image.save(buffered, format="JPEG", quality=80)
-            img_byte = buffered.getvalue()
 
-            image_part = types.Part.from_bytes(
-                data=img_byte, mime_type="image/jpeg"
-            )
+            # 최신 gemini-3.8-flash 모델 REST 엔드포인트
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
 
-            # 10초 타임아웃 강제 적용 함수 (무한 멈춤 방지)
-            def call_gemini():
-              return client.models.generate_content(
-                  model="gemini-3.8-flash", contents=[image_part, prompt]
-              )
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"text": prompt},
+                        {
+                            "inline_data": {
+                                "mime_type": "image/jpeg",
+                                "data": img_base64,
+                            }
+                        },
+                    ]
+                }]
+            }
 
-            with ThreadPoolExecutor(max_workers=1) as executor:
-              future = executor.submit(call_gemini)
+            response = requests.post(url, json=payload, timeout=15)
+            result_json = response.json()
+
+            if response.status_code == 200:
               try:
-                response = future.result(
-                    timeout=10
-                )  # 10초 안에 안 오면 예외 발생
-              except Exception as timeout_err:
-                raise RuntimeError(
-                    "AI 서버 응답 시간이 초과되었습니다. (10초 타임아웃)"
+                raw_text = (
+                    result_json["candidates"][0]["content"]["parts"][0]["text"]
                 )
-
-            if response and response.text:
-              clean_text = (
-                  response.text.replace("```json", "")
-                  .replace("```", "")
-                  .strip()
-              )
-              parsed_data = json.loads(clean_text)
-
-              if parsed_data:
-                st.session_state.items_df = pd.DataFrame(parsed_data)
-                st.success(
-                    "✨ AI 자동 분석 완료! 아래 표에서 내용을 확인하고"
-                    " 저장하세요."
+                clean_text = (
+                    raw_text.replace("```json", "")
+                    .replace("```", "")
+                    .strip()
                 )
-              else:
-                st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
+                parsed_data = json.loads(clean_text)
+
+                if parsed_data:
+                  st.session_state.items_df = pd.DataFrame(parsed_data)
+                  st.success(
+                      "✨ AI 자동 분석 완료! 아래 표에서 내용을 확인하고"
+                      " 저장하세요."
+                  )
+                else:
+                  st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
+              except Exception as parse_err:
+                st.error(f"데이터 파싱 중 오류가 발생했습니다: {parse_err}")
             else:
-              st.error(
-                  "AI로부터 응답을 받지 못했습니다. 다시 시도해 주세요."
+              error_msg = result_json.get("error", {}).get(
+                  "message", "알 수 없는 오류"
               )
+              st.error(f"AI 서버 에러 ({response.status_code}): {error_msg}")
+
+          except requests.exceptions.Timeout:
+            st.error(
+                "서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+            )
           except Exception as e:
             st.error(f"AI 분석 중 오류가 발생했습니다: {e}")
 
