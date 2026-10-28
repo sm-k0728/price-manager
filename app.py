@@ -4,26 +4,27 @@ import os
 import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
-from google import genai
-from google.genai import types
 import streamlit as st
+from google.cloud import aiplatform
+# Vertex AI용 제미나이 라이브러리 임포트
+import vertexai
+from vertexai.generative_models import GenerativeModel, Part
 
 # ==========================================
-# 🔑 AQ 토큰(서비스 계정) 완벽 대응형 클라이언트 설정
+# 🔑 AQ 토큰 전용 Vertex AI 초기화
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
-  os.environ["GEMINI_API_KEY"] = api_key
+  # AQ 토큰을 Google Cloud 자격증명 환경 변수로 주입
+  os.environ["GOOGLE_API_KEY"] = api_key
 
-  # 만약 토큰이 AQ로 시작한다면 Vertex AI 모드로 강제 설정하여 토큰 에러 우회
-  if api_key.startswith("AQ"):
-    # Vertex AI 환경 변수 설정 (AQ 토큰 전용)
-    os.environ["GEMINI_USE_VERTEXAI"] = "True"
-    client = genai.Client()
-  else:
-    client = genai.Client()
-except Exception:
-  client = None
+  # Vertex AI 초기화 (프로젝트 ID나 지역은 임시값 또는 기본값 사용)
+  # AQ 토큰이 환경변수로 잡히면 vertexai가 이를 인식합니다.
+  vertexai.init(project="streamlit-price-manager", location="us-central1")
+  model = GenerativeModel("gemini-2.5-flash")
+  vertex_ready = True
+except Exception as e:
+  vertex_ready = False
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -198,14 +199,14 @@ with tab2:
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
-      if client is None:
+      if not vertex_ready:
         st.error(
-            "Streamlit Secrets에 `GEMINI_API_KEY`가 설정되어 있는지 확인해"
-            " 주세요!"
+            "Streamlit Secrets에 `GEMINI_API_KEY` 설정 및 Vertex AI 초기화에"
+            " 실패했습니다."
         )
       else:
         with st.spinner(
-            "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
+            "Vertex AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
         ):
           try:
             prompt = """
@@ -221,9 +222,10 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            response = client.models.generate_content(
-                model="gemini-2.5-flash", contents=[image, prompt]
-            )
+            # Vertex AI 멀티모달 입력 파트 생성
+            image_part = Part.from_image(image)
+            response = model.generate_content([image_part, prompt])
+
             clean_text = (
                 response.text.replace("```json", "")
                 .replace("```", "")
