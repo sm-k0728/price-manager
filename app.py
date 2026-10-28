@@ -216,9 +216,9 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 최신 google-genai SDK를 이용한 멀티모달 분석 호출
+            # 최신 gemini-3.8-flash 모델 적용 완료
             response = client.models.generate_content(
-                model="gemini-2.5-flash", contents=[image, prompt]
+                model="gemini-3.8-flash", contents=[image, prompt]
             )
 
             clean_text = (
