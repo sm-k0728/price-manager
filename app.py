@@ -214,7 +214,6 @@ with tab2:
                         ]
                         """
 
-            # v1 안정 엔드포인트 + gemini-2.5-flash 조합
             url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={api_key}"
 
             payload = {
@@ -240,4 +239,79 @@ with tab2:
                     result_json["candidates"][0]["content"]["parts"][0]["text"]
                 )
                 clean_text = (
-                    raw_text.replace("
+                    raw_text.replace("```json", "")
+                    .replace("```", "")
+                    .strip()
+                )
+                parsed_data = json.loads(clean_text)
+
+                if parsed_data:
+                  st.session_state.items_df = pd.DataFrame(parsed_data)
+                  st.success(
+                      "✨ AI 자동 분석 완료! 아래 표에서 내용을 확인하고"
+                      " 저장하세요."
+                  )
+                else:
+                  st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
+              except Exception as parse_err:
+                st.error(f"데이터 파싱 중 오류가 발생했습니다: {parse_err}")
+            else:
+              error_msg = result_json.get("error", {}).get(
+                  "message", "알 수 없는 오류"
+              )
+              st.error(f"AI 서버 에러 ({response.status_code}): {error_msg}")
+
+          except requests.exceptions.Timeout:
+            st.error(
+                "서버 응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+            )
+          except Exception as e:
+            st.error(f"AI 분석 중 오류가 발생했습니다: {e}")
+
+  if st.session_state.items_df.empty:
+    st.session_state.items_df = pd.DataFrame([{
+        "품목명": "",
+        "규격": "",
+        "단가(원)": 0.0,
+        "거래처": "",
+        "거래일자": datetime.today().strftime("%Y-%m-%d"),
+    }])
+
+  st.markdown(
+      "### 📋 등록할 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)"
+  )
+  edited_df = st.data_editor(
+      st.session_state.items_df, num_rows="dynamic", use_container_width=True
+  )
+
+  if st.button("💾 모든 품목 데이터베이스에 일괄 저장하기"):
+    saved_count = 0
+    for idx, row in edited_df.iterrows():
+      if row["품목명"] and row["거래처"] and float(row["단가(원)"]) > 0:
+        c.execute(
+            """
+                    INSERT INTO prices (item_name, spec, price, supplier, date)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+            (
+                row["품목명"],
+                row["규격"],
+                float(row["단가(원)"]),
+                row["거래처"],
+                row["거래일자"],
+            ),
+        )
+        saved_count += 1
+    conn.commit()
+
+    if saved_count > 0:
+      st.success(
+          f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
+          " 저장되었습니다!"
+      )
+      st.session_state.items_df = pd.DataFrame(
+          columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
+      )
+      st.rerun()
+    else:
+      st.warning("저장할 유효한 데이터가 없습니다.")
