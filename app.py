@@ -4,7 +4,7 @@ from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance
 import re
 
 # 페이지 설정
@@ -42,13 +42,22 @@ def save_data(df):
     sheet.clear()
     sheet.update([df.columns.values.tolist()] + df.values.tolist())
 
-# --- [OCR 텍스트 자동 분석 함수] ---
-def parse_ocr_text(text):
-    parsed = {'item_name': '', 'spec': '', 'price': 0, 'supplier': ''}
-    lines = [line.strip() for line in text.split('\n') if line.strip()]
+# --- [이미지 전처리 및 OCR 분석 함수] ---
+def process_and_extract(image):
+    # 1. 이미지를 흑백으로 변환하고 대조(대비)를 높여 글자를 선명하게 만듦
+    gray_image = ImageOps.grayscale(image)
+    enhancer = ImageEnhance.Contrast(gray_image)
+    sharp_image = enhancer.enhance(2.0)  # 대비 2배 강화
     
-    # 단가 추출
-    numbers = re.findall(r'\b\d{1,3}(?:[,\.]\d{3})*\b|\b\d{3,8}\b', text)
+    # 2. Tesseract OCR 실행 (PSM 6: 균일한 단일 텍스트 블록 가정)
+    custom_config = r'--psm 6'
+    raw_text = pytesseract.image_to_string(sharp_image, lang='kor+eng', config=custom_config)
+    
+    parsed = {'item_name': '', 'spec': '', 'price': 0, 'supplier': ''}
+    lines = [line.strip() for line in raw_text.split('\n') if line.strip()]
+    
+    # 단가 추출 (숫자 패턴)
+    numbers = re.findall(r'\b\d{1,3}(?:[,\.]\d{3})*\b|\b\d{3,8}\b', raw_text)
     valid_prices = []
     for num in numbers:
         clean_num = int(re.sub(r'[^\d]', '', num))
@@ -72,7 +81,7 @@ def parse_ocr_text(text):
         if len(filtered_lines) > 1:
             parsed['spec'] = filtered_lines[1]
             
-    return parsed
+    return parsed, raw_text
 
 df = load_data()
 
@@ -103,8 +112,7 @@ with tab1:
             if st.button("⚡ 사진 분석하고 입력창에 채우기"):
                 with st.spinner("AI 분석 중..."):
                     try:
-                        raw_text = pytesseract.image_to_string(image, lang='kor+eng')
-                        extracted = parse_ocr_text(raw_text)
+                        extracted, raw_text = process_and_extract(image)
                         
                         st.session_state['form_data']['item_name'] = extracted['item_name']
                         st.session_state['form_data']['spec'] = extracted['spec']
