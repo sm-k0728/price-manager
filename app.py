@@ -1,12 +1,11 @@
 from datetime import datetime
+import io
 import json
 import os
 import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
 import streamlit as st
-from google.cloud import aiplatform
-# Vertex AI용 제미나이 라이브러리 임포트
 import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
@@ -15,11 +14,8 @@ from vertexai.generative_models import GenerativeModel, Part
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
-  # AQ 토큰을 Google Cloud 자격증명 환경 변수로 주입
   os.environ["GOOGLE_API_KEY"] = api_key
 
-  # Vertex AI 초기화 (프로젝트 ID나 지역은 임시값 또는 기본값 사용)
-  # AQ 토큰이 환경변수로 잡히면 vertexai가 이를 인식합니다.
   vertexai.init(project="streamlit-price-manager", location="us-central1")
   model = GenerativeModel("gemini-2.5-flash")
   vertex_ready = True
@@ -222,8 +218,12 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # Vertex AI 멀티모달 입력 파트 생성
-            image_part = Part.from_image(image)
+            # PIL Image를 바이트로 변환하여 Vertex AI에 전달 (에러 해결 핵심)
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG")
+            img_byte = buffered.getvalue()
+
+            image_part = Part.from_data(img_byte, mime_type="image/jpeg")
             response = model.generate_content([image_part, prompt])
 
             clean_text = (
