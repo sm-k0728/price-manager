@@ -41,7 +41,7 @@ with tab1:
     st.markdown("---")
     st.subheader("2. ✍️ 데이터 입력 및 저장")
 
-    with tab1_form := st.form("basic_form"):
+    with st.form("basic_form"):
         item_name = st.text_input("품목명")
         spec = st.text_input("규격")
         price = st.number_input("단가", min_value=0, step=100)
