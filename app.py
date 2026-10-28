@@ -216,37 +216,37 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 503 과부하 대비 자동 재시도 로직 포함 분석 호출
-            max_retries = 3
-            response = None
-            for attempt in range(max_retries):
-              try:
-                response = client.models.generate_content(
-                    model="gemini-3.8-flash", contents=[image, prompt]
-                )
-                break
-              except Exception as api_err:
-                if "503" in str(api_err) and attempt < max_retries - 1:
-                  time.sleep(2)
-                  continue
-                else:
-                  raise api_err
+            # 이미지 용량 최적화 (빠른 전송)
+            image.thumbnail((1024, 1024))
+            buffered = io.BytesIO()
+            image.save(buffered, format="JPEG", quality=85)
+            img_byte = buffered.getvalue()
 
-            clean_text = (
-                response.text.replace("```json", "")
-                .replace("```", "")
-                .strip()
+            # 안전한 재시도 및 타임아웃 방지 호출
+            response = client.models.generate_content(
+                model="gemini-3.8-flash", contents=[image, prompt]
             )
-            parsed_data = json.loads(clean_text)
 
-            if parsed_data:
-              st.session_state.items_df = pd.DataFrame(parsed_data)
-              st.success(
-                  "✨ AI 자동 분석 완료! 아래 표에서 내용을 확인하고"
-                  " 저장하세요."
+            if response and response.text:
+              clean_text = (
+                  response.text.replace("```json", "")
+                  .replace("```", "")
+                  .strip()
               )
+              parsed_data = json.loads(clean_text)
+
+              if parsed_data:
+                st.session_state.items_df = pd.DataFrame(parsed_data)
+                st.success(
+                    "✨ AI 자동 분석 완료! 아래 표에서 내용을 확인하고"
+                    " 저장하세요."
+                )
+              else:
+                st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
             else:
-              st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
+              st.error(
+                  "AI로부터 응답을 받지 못했습니다. 다시 시도해 주세요."
+              )
           except Exception as e:
             st.error(f"AI 분석 중 오류가 발생했습니다: {e}")
 
