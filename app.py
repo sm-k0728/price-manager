@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
 import pytesseract
+import re
 import streamlit as st
 
 # 데이터베이스 연결 설정
@@ -108,7 +109,7 @@ with tab1:
 
     st.markdown("---")
     st.subheader("🔍 품목 검색 및 최저가 확인")
-    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, SHEET)", "")
+    search_query = st.text_input("검색할 품목명을 입력하세요 (예: 후렌지, 용접)", "")
 
     if search_query.strip() != "":
       q = search_query.strip().lower()
@@ -155,7 +156,6 @@ with tab2:
 
   if uploaded_file is not None:
     try:
-      # 이미지 형식 및 회전 방향 안전하게 보정 (에러 원인 차단)
       image = Image.open(uploaded_file)
       image = ImageOps.exif_transpose(image)
       if image.mode != "RGB":
@@ -168,39 +168,64 @@ with tab2:
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          # 기본 파싱 구조
-          parsed_data = [
-              {
-                  "품목명": "면세식 PP SHEET",
-                  "규격": "25*1000*5000",
-                  "단가(원)": 215000,
-                  "거래처": "미래테크",
-                  "거래일자": "2025-10-20",
-              },
-              {
-                  "품목명": "면세식 PP SHEET",
-                  "규격": "15*1300*5000",
-                  "단가(원)": 310500,
-                  "거래처": "미래테크",
-                  "거래일자": "2025-10-20",
-              },
-          ]
+          # 실제 OCR 텍스트를 파싱하여 품목 목록 추출
+          lines = [line.strip() for line in extracted_text.split("\n") if line.strip()]
+          parsed_items = []
+          supplier = "미래테크"  # 기본 거래처
 
-          st.session_state.items_df = pd.DataFrame(parsed_data)
+          for line in lines:
+            if "미래테크" in line:
+              supplier = "미래테크"
+
+            # 제외할 키워드
+            if any(k in line for k in ['합계', '금액', '전일잔액', '세액', '부산은행', 'TEL', 'FAX', '등록번호', '주소', '상호', '공급자']):
+              continue
+
+            # 쉼표가 포함된 금액 패턴 탐색 (예: 11,500 등)
+            nums = re.findall(r'\b\d{1,3}(?:,\d{3})+\b', line)
+            if nums:
+              try:
+                price_val = float(nums[-1].replace(',', ''))
+                # 품목명 정제
+                clean_name = line
+                for n in nums:
+                  clean_name = clean_name.replace(n, '')
+                # 수량(예: 4.00) 제거
+                clean_name = re.sub(r'\b\d+\.\d{2}\b', '', clean_name).strip()
+                
+                if len(clean_name) > 1:
+                  parsed_items.append({
+                      "품목명": clean_name,
+                      "규격": "-",
+                      "단가(원)": price_val,
+                      "거래처": supplier,
+                      "거래일자": datetime.today().strftime('%Y-%m-%d')
+                  })
+              except:
+                pass
+
+          # 파싱된 결과가 없으면 기본 안내 행 추가
+          if not parsed_items:
+            parsed_items = [{
+                "품목명": "인식된 품목 직접 입력",
+                "규격": "-",
+                "단가(원)": 0,
+                "거래처": supplier,
+                "거래일자": datetime.today().strftime('%Y-%m-%d')
+            }]
+
+          st.session_state.items_df = pd.DataFrame(parsed_items)
           st.success(
-              "✨ 인식 완료! 아래 표에서 글자가 틀렸다면 직접 클릭해서 수정하고"
-              " 저장하세요."
+              "✨ 인식 완료! 아래 표에서 추출된 내용을 확인하고 수정할 수 있습니다."
           )
     except Exception as e:
       st.error(
-          f"이미지 형식을 불러오는 중 오류가 발생했습니다. (JPG/PNG 파일로"
-          f" 다시 시도해 주세요) 상세 오류: {e}"
+          f"이미지 형식을 불러오는 중 오류가 발생했습니다. 상세 오류: {e}"
       )
 
   if not st.session_state.items_df.empty:
     st.markdown(
-        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가"
-        " 가능)"
+        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)"
     )
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
