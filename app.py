@@ -2,7 +2,7 @@ from datetime import datetime
 import json
 import sqlite3
 import google.generativeai as genai
--import pandas as pd
+import pandas as pd
 from PIL import Image, ImageOps
 import streamlit as st
 
@@ -186,14 +186,9 @@ with tab2:
       image = image.convert("RGB")
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    if st.button(
-        "✨ Gemini AI로 명세서 자동 분석하기",
-        type="primary",
-    ):
+    if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
       if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
-        st.error(
-            "코드 상단에 유효한 `GEMINI_API_KEY`를 입력해 주세요!"
-        )
+        st.error("코드 상단에 유효한 `GEMINI_API_KEY`를 입력해 주세요!")
       else:
         with st.spinner(
             "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
