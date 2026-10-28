@@ -1,5 +1,6 @@
 from datetime import datetime
 import json
+import os
 import sqlite3
 import google.generativeai as genai
 import pandas as pd
@@ -7,14 +8,17 @@ from PIL import Image, ImageOps
 import streamlit as st
 
 # ==========================================
-# 🔑 Gemini API 설정 (Streamlit Secrets 연동)
+# 🔑 Gemini API 설정 (AQ 토큰 및 일반 키 완벽 대응)
 # ==========================================
 try:
   GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+  # AQ로 시작하는 토큰이든 AIzaSy 키든 환경변수와 제나이 설정에 모두 반영
+  os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
   genai.configure(api_key=GEMINI_API_KEY)
 except Exception:
   GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
   if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
+    os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
     genai.configure(api_key=GEMINI_API_KEY)
 
 # 데이터베이스 연결 설정
