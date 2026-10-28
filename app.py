@@ -21,7 +21,7 @@ def parse_ocr_text(text):
     parsed = {'item_name': '', 'spec': '', 'price': 0, 'supplier': ''}
     lines = [line.strip() for line in text.split('\n') if line.strip()]
     
-    # 단가 추출 (숫자 패턴)
+    # 1. 단가 추출 (숫자 패턴 중 100원 ~ 500만원 사이 값)
     numbers = re.findall(r'\b\d{1,3}(?:[,\.]\d{3})*\b|\b\d{3,8}\b', text)
     valid_prices = []
     for num in numbers:
@@ -29,27 +29,39 @@ def parse_ocr_text(text):
         if 100 <= clean_num <= 5000000:
             valid_prices.append(clean_num)
     if valid_prices:
+        # 일반적으로 거래명세서 단가/금액란에 나오는 유효한 숫자 선택
         parsed['price'] = valid_prices[0]
 
-    # 공급처 추출
+    # 2. 공급처(상호) 추출
     for line in lines:
-        if any(keyword in line for keyword in ['상호', '공급자', '업체', '(주)', '주식회사', '상사', '유통']):
+        if any(keyword in line for keyword in ['상호', '공급자', '업체', '(주)', '주식회사', '상사', '유통', '미래테크']):
             clean_line = re.sub(r'(상호|공급자|업체명|:|\(|\))', '', line).strip()
             if clean_line:
                 parsed['supplier'] = clean_line
                 break
 
-    # 품목명 및 규격 추출
-    filtered_lines = [l for l in lines if not any(k in l for k in ['공급자', '합계', '금액', '사업자', '날짜', '전화', '주소'])]
-    if filtered_lines:
-        parsed['item_name'] = filtered_lines[0]
-        if len(filtered_lines) > 1:
-            parsed['spec'] = filtered_lines[1]
+    # 만약 키워드로 못 찾았다면 상단 영역의 사업자 상호 추정
+    if not parsed['supplier'] and len(lines) > 0:
+        for line in lines[:5]:
+            if len(line) >= 2 and not any(k in line for k in ['거래명세서', '등록번호', '사업자', '주소', 'TEL']):
+                parsed['supplier'] = line
+                break
+
+    # 3. 품목명 및 규격 추출 (한글이 포함된 유의미한 줄 탐색)
+    korean_lines = [l for l in lines if re.search(r'[가-힣]', l) and not any(k in l for k in ['공급자', '합계', '금액', '사업자', '날짜', '전화', '주소', '등록번호', '거래명세서'])]
+    
+    if korean_lines:
+        parsed['item_name'] = korean_lines[0]
+        if len(korean_lines) > 1:
+            parsed['spec'] = korean_lines[1]
+    elif lines:
+        # 한글을 못 찾았을 경우 첫 번째 줄 대체
+        parsed['item_name'] = lines[0]
             
     return parsed
 
-st.title("📦 거래명세서 단가 관리 프로그램 (자동 입력 테스트)")
-st.markdown("사진을 올리면 텍스트를 추출하고 입력창에 자동으로 채워집니다!")
+st.title("📦 거래명세서 단가 관리 프로그램 (텍스트 보정 버전)")
+st.markdown("사진을 올리고 버튼을 누르면 품목명과 단가가 자동으로 채워집니다!")
 
 tab1, tab2 = st.tabs(["📝 단가 등록 / 수정", "📊 단가 DB 조회"])
 
@@ -68,11 +80,10 @@ with tab1:
             
             if st.button("⚡ 사진 분석하고 입력창에 채우기"):
                 with st.spinner("텍스트 추출 및 분석 중..."):
-                    # 한글+영문 OCR 실행
+                    # OCR 실행 (한글+영문 동시 지정)
                     text = pytesseract.image_to_string(image, lang='kor+eng')
                     extracted = parse_ocr_text(text)
                     
-                    # 세션 상태에 저장하여 입력 폼에 즉시 반영
                     st.session_state['form_data']['item_name'] = extracted['item_name']
                     st.session_state['form_data']['spec'] = extracted['spec']
                     st.session_state['form_data']['price'] = extracted['price']
@@ -115,7 +126,6 @@ with tab1:
                 st.session_state['db'] = pd.concat([st.session_state['db'], new_row], ignore_index=True)
                 st.success(f"🎉 [{item_name}] 저장 완료!")
                 
-                # 저장 후 입력폼 초기화
                 st.session_state['form_data'] = {
                     'item_name': '', 'spec': '', 'price': 0, 'supplier': '', 'date': datetime.today()
                 }
