@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sqlite3
+import google.oauth2.credentials
 import pandas as pd
 from PIL import Image, ImageOps
 import streamlit as st
@@ -10,13 +11,20 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
 # ==========================================
-# 🔑 AQ 토큰 전용 Vertex AI 초기화
+# 🔑 AQ 토큰을 OAuth2 인증 객체로 직접 주입하여 메타데이터 조회 우회
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
-  os.environ["GOOGLE_API_KEY"] = api_key
 
-  vertexai.init(project="streamlit-price-manager", location="us-central1")
+  # AQ 토큰을 구글 OAuth2 크리덴셜 객체로 직접 생성
+  creds = google.oauth2.credentials.Credentials(token=api_key)
+
+  # Vertex AI 초기화 시 명시적으로 credentials 전달 (메타데이터 서버 접속 차단)
+  vertexai.init(
+      project="streamlit-price-manager",
+      location="us-central1",
+      credentials=creds,
+  )
   model = GenerativeModel("gemini-2.5-flash")
   vertex_ready = True
 except Exception as e:
@@ -218,9 +226,11 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # PIL Image를 바이트로 변환하여 Vertex AI에 전달 (에러 해결 핵심)
+            # 이미지 용량 최적화 (속도 개선)
+            image.thumbnail((1024, 1024))
+
             buffered = io.BytesIO()
-            image.save(buffered, format="JPEG")
+            image.save(buffered, format="JPEG", quality=85)
             img_byte = buffered.getvalue()
 
             image_part = Part.from_data(img_byte, mime_type="image/jpeg")
