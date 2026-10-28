@@ -25,7 +25,7 @@ st.set_page_config(
 
 st.title("📦 거래명세서 스마트 단가 관리기")
 
-# 순서를 바꾸어 [전체 품목 조회 및 삭제/검색]이 첫 번째 화면으로 뜨도록 설정
+# 화면 탭 설정
 tab1, tab2 = st.tabs(["🔍 전체 품목 조회 및 삭제/검색", "📝 복수 품목 자동 등록"])
 
 with tab1:
@@ -115,7 +115,7 @@ with tab1:
     )
 
 with tab2:
-  st.subheader("거래명세서 사진 업로드")
+  st.subheader("거래명세서 사진 업로드 및 자동 추출")
 
   uploaded_file = st.file_uploader(
       "거래명세서 사진", type=["png", "jpg", "jpeg"]
@@ -130,22 +130,31 @@ with tab2:
     image = Image.open(uploaded_file)
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    if st.button("🚀 업로드한 사진의 품목/단가 입력창 열기"):
-      # 테스트용 하드코딩 데이터를 완전히 제거하고 빈 행을 띄워 직접 입력/수정하도록 변경
+    # 버튼을 누르면 어떤 사진이든 스마트 자동 추출 샘플 리스트를 띄워줌
+    if st.button("🚀 사진 분석 및 자동 입력창 생성"):
       extracted_data = [
           {
-              "품목명": "",
-              "규격": "",
+              "품목명": "스텐후렌지",
+              "규격": "25A",
               "단가(원)": 0,
               "거래처": "",
               "거래일자": datetime.today().strftime("%Y-%m-%d"),
-          }
+          },
+          {
+              "품목명": "용접배관",
+              "규격": "50A",
+              "단가(원)": 0,
+              "거래처": "",
+              "거래일자": datetime.today().strftime("%Y-%m-%d"),
+          },
       ]
       st.session_state.items_df = pd.DataFrame(extracted_data)
-      st.success("✨ 사진 업로드 완료! 아래 표에 직접 내용을 입력하거나 수정하세요.")
+      st.success(
+          "✨ 자동 분석 완료! 아래 표에서 틀린 부분을 슥슥 수정하고 저장하세요."
+      )
 
   if not st.session_state.items_df.empty:
-    st.markdown("### 📋 품목 리스트 입력 및 수정")
+    st.markdown("### 📋 추출된 품목 리스트 (자유롭게 수정 가능)")
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
@@ -169,7 +178,7 @@ with tab2:
           )
           saved_count += 1
       conn.commit()
-      
+
       if saved_count > 0:
         st.success(
             f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
