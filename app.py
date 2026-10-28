@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sqlite3
+import time
 from google import genai
 import pandas as pd
 from PIL import Image, ImageOps
@@ -13,7 +14,6 @@ import streamlit as st
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
-  # 최신 SDK 표준 방식으로 클라이언트 생성 (AQ 키 완벽 지원)
   client = genai.Client(api_key=api_key)
   genai_ready = True
 except Exception as e:
@@ -216,10 +216,21 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 최신 gemini-3.8-flash 모델 적용 완료
-            response = client.models.generate_content(
-                model="gemini-3.8-flash", contents=[image, prompt]
-            )
+            # 503 과부하 대비 자동 재시도 로직 포함 분석 호출
+            max_retries = 3
+            response = None
+            for attempt in range(max_retries):
+              try:
+                response = client.models.generate_content(
+                    model="gemini-3.8-flash", contents=[image, prompt]
+                )
+                break
+              except Exception as api_err:
+                if "503" in str(api_err) and attempt < max_retries - 1:
+                  time.sleep(2)
+                  continue
+                else:
+                  raise api_err
 
             clean_text = (
                 response.text.replace("```json", "")
