@@ -2,24 +2,25 @@ from datetime import datetime
 import json
 import os
 import sqlite3
-import google.generativeai as genai
 import pandas as pd
 from PIL import Image, ImageOps
+from google import genai  # 최신 구글 젠아이 라이브러리
+from google.genai import types
 import streamlit as st
 
 # ==========================================
-# 🔑 Gemini API 설정 (AQ 토큰 및 일반 키 완벽 대응)
+# 🔑 최신 SDK 및 AQ 토큰 인증 설정
 # ==========================================
 try:
-  GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
-  # AQ로 시작하는 토큰이든 AIzaSy 키든 환경변수와 제나이 설정에 모두 반영
-  os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
-  genai.configure(api_key=GEMINI_API_KEY)
+  api_key = st.secrets["GEMINI_API_KEY"]
+  os.environ["GEMINI_API_KEY"] = api_key
+  # 최신 클라이언트 초기화 방식 (AQ 토큰 및 일반 키 모두 지원)
+  client = genai.Client()
 except Exception:
-  GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
-  if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
-    os.environ["GEMINI_API_KEY"] = GEMINI_API_KEY
-    genai.configure(api_key=GEMINI_API_KEY)
+  api_key = "YOUR_GEMINI_API_KEY"
+  if api_key != "YOUR_GEMINI_API_KEY":
+    os.environ["GEMINI_API_KEY"] = api_key
+    client = genai.Client()
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -194,7 +195,7 @@ with tab2:
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
-      if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
+      if api_key == "YOUR_GEMINI_API_KEY":
         st.error(
             "Streamlit Secrets에 `GEMINI_API_KEY`가 설정되어 있는지 확인해"
             " 주세요!"
@@ -204,7 +205,6 @@ with tab2:
             "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
         ):
           try:
-            model = genai.GenerativeModel("gemini-1.5-flash")
             prompt = """
                         이 거래명세서 이미지에 적힌 품목 표와 공급자 정보를 분석하여 아래 JSON 형식의 리스트로만 추출해 주세요. 다른 설명은 절대 적지 마세요.
                         - item_name: 품목명
@@ -218,7 +218,10 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            response = model.generate_content([image, prompt])
+            # 최신 SDK 표준 호출 방식 (비전 분석)
+            response = client.models.generate_content(
+                model="gemini-2.5-flash", contents=[image, prompt]
+            )
             clean_text = (
                 response.text.replace("```json", "")
                 .replace("```", "")
