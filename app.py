@@ -114,7 +114,6 @@ with tab1:
     if search_query.strip() != "":
       q = search_query.strip().lower()
       
-      # 스텐, sts, sus 동의어 통합 검색 지원
       search_terms = set([q])
       if any(k in q for k in ['스텐', 'sus', 'sts']):
         search_terms.update(['스텐', 'sus', 'sts'])
@@ -186,49 +185,59 @@ with tab2:
 
           lines = [line.strip() for line in extracted_text.split("\n") if line.strip()]
           
-          # 1. 거래처 이름 동적 탐색
-          supplier = "일반 거래처"
+          # 1. 거래처 유연 탐색 (상호나 주소 주변 단어 추출)
+          supplier = "거래처 미인식"
           for line in lines:
-            if "상호" in line or "공급자" in line or "주" in line:
+            if any(k in line for k in ["상호", "공급자", "배관", "상사", "테크"]):
               parts = line.split()
               for p in parts:
-                if p not in ["상호", ":", "(법인명)", "공급자", "사업장", "귀하"]:
+                if p not in ["상호", ":", "(법인명)", "공급자", "사업장", "귀하", "업태", "종목"]:
                   if len(p) >= 2:
                     supplier = p
                     break
-            if "전주배관" in extracted_text:
-              supplier = "전주배관"
+            # 만약 텍스트 내 특정 상호명이 포착되면 우선 적용
+            if "선수배관" in line or "전주배관" in line or "미래테크" in line:
+              for name in ["선수배관", "전주배관", "미래테크"]:
+                if name in line:
+                  supplier = name
 
-          # 2. 범용 품목 파싱 로직 (콤마가 포함된 금액/단가 숫자가 있는 행 집중 공략)
+          # 2. 범용 품목 파싱 로직 (숫자가 포함된 모든 유효 행을 놓치지 않고 수집)
           parsed_items = []
           for line in lines:
-            # 합계, 잔액 등 제외 키워드
-            if any(k in line for k in ['합계', '금액', '전일잔액', '세액', '은행', 'TEL', 'FAX', '등록번호', '주소', '상호', '공급자', '잔액', '입금', '이하여백']):
+            # 총합계, 은행 계좌 등 명세서 하단/상단 불필요 정보 제외
+            if any(k in line for k in ['합계금액', '전일잔액', '잔액', '입금', '농협', '은행', 'TEL', 'FAX', '등록번호', '주소', '이하여백', '인수자']):
               continue
 
-            # 콤마가 포함된 숫자(예: 17,000, 4,370 등) 추출
-            prices = re.findall(r'\b\d{1,3}(?:,\d{3})+\b', line)
-            if prices:
+            # 숫자(콤마 포함 혹은 일반 숫자)가 포함되어 있는지 확인
+            numbers = re.findall(r'\b\d{1,3}(?:,\d{3})+\b|\b\d{2,7}\b', line)
+            if numbers:
               try:
-                # 첫 번째 또는 적절한 콤마 숫자를 단가로 지정
-                price_val = float(prices[0].replace(',', ''))
-                if price_val > 10:
-                  clean_line = line
-                  for p in prices:
-                    clean_line = clean_line.replace(p, '')
+                # 숫자가 발견된 경우, 가장 적절한 단가/금액 추출
+                # 콤마가 있는 숫자가 있으면 우선 선택, 없으면 마지막 숫자 선택
+                price_val = 0
+                comma_nums = [n for n in numbers if ',' in n]
+                if comma_nums:
+                  price_val = float(comma_nums[0].replace(',', ''))
+                else:
+                  price_val = float(numbers[-1].replace(',', ''))
 
-                  # 규격 패턴 추출 (예: 25A, 25*20A 등)
+                if price_val > 50:  # 너무 작은 자릿수 제외
+                  clean_line = line
+                  for num in numbers:
+                    clean_line = clean_line.replace(num, '')
+
+                  # 규격 패턴 찾기 (예: 25A, 25*20A 등)
                   spec_match = re.search(r'\b\d+[A-Z]*\b|\b\d+\*\d+[A-Z]*\b', clean_line)
                   spec = spec_match.group(0) if spec_match else "-"
                   if spec_match:
                     clean_line = clean_line.replace(spec_match.group(0), '')
 
-                  # 날짜 앞머리(예: 09.12) 및 불필요 기호 제거
+                  # 날짜나 불필요한 앞머리 기호 제거
                   clean_line = re.sub(r'^\d{2}\.\d{2}\b', '', clean_line).strip()
                   clean_line = re.sub(r'^[0-9ㅇO\-\.\s]+', '', clean_line).strip()
 
                   if not clean_line or len(clean_line) < 2:
-                    clean_line = "배관자재 품목"
+                    clean_line = "인식된 품목"
 
                   parsed_items.append({
                       "품목명": clean_line,
@@ -240,18 +249,18 @@ with tab2:
               except:
                 pass
 
-          # 추출된 항목이 없을 경우 빈 입력 행 제공
+          # 만약 자동 추출된 항목이 없더라도 사용자가 바로 수정/입력할 수 있도록 기본 빈 행 제공
           if not parsed_items:
             parsed_items = [{
-                "품목명": "",
-                "규격": "",
+                "품목명": "품목 직접 입력 필요",
+                "규격": "-",
                 "단가(원)": 0,
-                "거래처": supplier,
+                "거래처": supplier if supplier != "거래처 미인식" else "신규 거래처",
                 "거래일자": datetime.today().strftime('%Y-%m-%d')
             }]
 
           st.session_state.items_df = pd.DataFrame(parsed_items)
-          st.success("✨ 분석 완료! 아래 표에서 내용을 확인하고 필요한 부분을 수정하세요.")
+          st.success("✨ 분석 완료! 아래 표에서 품목과 단가를 확인하고 필요시 수정해 주세요.")
     except Exception as e:
       st.error(f"이미지 처리 중 오류 발생: {e}")
 
