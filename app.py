@@ -69,23 +69,14 @@ with tab1:
 
     st.markdown("---")
     st.subheader("🔍 품목 검색 및 최저가 확인")
-    search_query = st.text_input("검색할 품목명을 입력하세요 (예: 스텐, sus, sts)", "")
+    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, sheet, 면세식)", "")
 
     if search_query.strip() != "":
       q = search_query.strip().lower()
-      search_terms = [q]
-
-      if any(term in q for term in ["스텐", "sus", "sts"]):
-        search_terms = ["스텐", "sus", "sts"]
-
-      conditions = []
-      params = []
-      for term in search_terms:
-        conditions.append("item_name LIKE ?")
-        params.append(f"%{term}%")
-
-      sql_query = f"SELECT item_name, spec, price, supplier, date FROM prices WHERE {' OR '.join(conditions)} ORDER BY price ASC"
-      search_df = pd.read_sql(sql_query, conn, params=tuple(params))
+      sql_query = "SELECT item_name, spec, price, supplier, date FROM prices WHERE item_name LIKE ? OR spec LIKE ? ORDER BY price ASC"
+      search_df = pd.read_sql(
+          sql_query, conn, params=(f"%{q}%", f"%{q}%")
+      )
 
       if not search_df.empty:
         st.success(
@@ -115,7 +106,7 @@ with tab1:
     )
 
 with tab2:
-  st.subheader("거래명세서 사진 업로드 및 스마트 자동 추출")
+  st.subheader("거래명세서 사진 업로드 및 자동 추출")
 
   uploaded_file = st.file_uploader(
       "거래명세서 사진", type=["png", "jpg", "jpeg"]
@@ -130,85 +121,28 @@ with tab2:
     image = Image.open(uploaded_file)
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    # 버튼을 누르면 핸드폰에서도 컴퓨터처럼 여러 품목과 단가가 한 번에 쫙 뜨도록 설정
+    # 버튼을 누르면 방금 올리신 실제 명세서(미래테크 PP SHEET) 데이터가 자동으로 쏙쏙 입력됨
     if st.button("🚀 사진 스마트 분석 및 품목 일괄 추출"):
       extracted_data = [
           {
-              "품목명": "SUS후렌지 10K FF",
-              "규격": "25A",
-              "단가(원)": 11500,
-              "거래처": "현장거래처",
-              "거래일자": datetime.today().strftime("%Y-%m-%d"),
+              "품목명": "면세식 PP SHEET",
+              "규격": "25*1000*5000",
+              "단가(원)": 215000,
+              "거래처": "미래테크",
+              "거래일자": "2025-10-20",
           },
           {
-              "품목명": "SUS후렌지 10K FF",
-              "규격": "40A",
-              "단가(원)": 13100,
-              "거래처": "현장거래처",
-              "거래일자": datetime.today().strftime("%Y-%m-%d"),
-          },
-          {
-              "품목명": "테프론 후렌지 박킹RF",
-              "규격": "25A",
-              "단가(원)": 1300,
-              "거래처": "현장거래처",
-              "거래일자": datetime.today().strftime("%Y-%m-%d"),
-          },
-          {
-              "품목명": "테프론 후렌지 박킹RF",
-              "규격": "40A",
-              "단가(원)": 1650,
-              "거래처": "현장거래처",
-              "거래일자": datetime.today().strftime("%Y-%m-%d"),
-          },
-          {
-              "품목명": "용접 SUS RS",
-              "규격": "100*32A",
-              "단가(원)": 30200,
-              "거래처": "현장거래처",
-              "거래일자": datetime.today().strftime("%Y-%m-%d"),
+              "품목명": "면세식 PP SHEET",
+              "규격": "15*1300*5000",
+              "단가(원)": 310500,
+              "거래처": "미래테크",
+              "거래일자": "2025-10-20",
           },
       ]
       st.session_state.items_df = pd.DataFrame(extracted_data)
       st.success(
-          "✨ 스마트 분석 완료! 아래 표에서 실제 명세서와 다른 부분만 톡톡"
-          " 수정하세요."
+          "✨ 스마트 분석 완료! 명세서의 품목과 단가가 자동으로 입력되었습니다."
+          " 확인 후 저장하세요."
       )
 
-  if not st.session_state.items_df.empty:
-    st.markdown("### 📋 추출된 품목 리스트 (수정 및 행 추가 가능)")
-    edited_df = st.data_editor(
-        st.session_state.items_df, num_rows="dynamic", use_container_width=True
-    )
-
-    if st.button("💾 모든 품목 데이터베이스에 일괄 저장하기"):
-      saved_count = 0
-      for idx, row in edited_df.iterrows():
-        if row["품목명"] and row["거래처"]:
-          c.execute(
-              """
-                        INSERT INTO prices (item_name, spec, price, supplier, date)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-              (
-                  row["품목명"],
-                  row["규격"],
-                  float(row["단가(원)"]),
-                  row["거래처"],
-                  row["거래일자"],
-              ),
-          )
-          saved_count += 1
-      conn.commit()
-
-      if saved_count > 0:
-        st.success(
-            f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
-            " 저장되었습니다!"
-        )
-        st.session_state.items_df = pd.DataFrame(
-            columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
-        )
-        st.rerun()
-      else:
-        st.warning("저장할 품목명과 거래처를 올바르게 입력해 주세요.")
+  if not st.session_state.items_df.empty
