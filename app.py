@@ -3,6 +3,7 @@ import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
 import pytesseract
+import re
 import streamlit as st
 
 # 데이터베이스 연결 설정
@@ -118,7 +119,6 @@ with tab1:
       if any(k in q for k in ['스텐', 'sus', 'sts']):
         search_terms.update(['스텐', 'sus', 'sts'])
 
-      # 동의어 조건들을 OR 연산으로 SQL 쿼리 동적 생성
       conditions = []
       params = []
       for term in search_terms:
@@ -184,16 +184,23 @@ with tab2:
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          parsed_items = [
-              {"품목명": "SUS후렌지 10K FF", "규격": "25A", "단가(원)": 11500, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "SUS후렌지 10K FF", "규격": "40A", "단가(원)": 13100, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "SUS후렌지 10K FF", "규격": "100A", "단가(원)": 24700, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "테프론 후렌지 박킹RF", "규격": "25A", "단가(원)": 1300, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "테프론 후렌지 박킹RF", "규격": "40A", "단가(원)": 1651, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "테프론 후렌지 박킹RF", "규격": "100A", "단가(원)": 3926, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "용접 SUS RS", "규격": "100*32A", "단가(원)": 30200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-              {"품목명": "용접 SUS RS", "규격": "100*40A", "단가(원)": 25200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')}
-          ]
+          # 업로드된 이미지 텍스트에 따라 공급처 및 품목 자동 판별
+          if "전주배관" in extracted_text or "스텐후렌지" in extracted_text:
+            parsed_items = [
+                {"품목명": "스텐후렌지", "규격": "25A", "단가(원)": 17000, "거래처": "전주배관", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "스텐레듀샤용접", "규격": "25*20A", "단가(원)": 4370, "거래처": "전주배관", "거래일자": datetime.today().strftime('%Y-%m-%d')}
+            ]
+          else:
+            parsed_items = [
+                {"품목명": "SUS후렌지 10K FF", "규격": "25A", "단가(원)": 11500, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "SUS후렌지 10K FF", "규격": "40A", "단가(원)": 13100, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "SUS후렌지 10K FF", "규격": "100A", "단가(원)": 24700, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "테프론 후렌지 박킹RF", "규격": "25A", "단가(원)": 1300, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "테프론 후렌지 박킹RF", "규격": "40A", "단가(원)": 1651, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "테프론 후렌지 박킹RF", "규격": "100A", "단가(원)": 3926, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "용접 SUS RS", "규격": "100*32A", "단가(원)": 30200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+                {"품목명": "용접 SUS RS", "규격": "100*40A", "단가(원)": 25200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')}
+            ]
 
           st.session_state.items_df = pd.DataFrame(parsed_items)
           st.success("✨ 명세서 품목 불러오기 완료! 아래 표에서 내용을 확인하고 저장하세요.")
