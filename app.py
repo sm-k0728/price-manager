@@ -191,14 +191,15 @@ with tab2:
         st.error("Streamlit Secrets에 `GEMINI_API_KEY`가 설정되지 않았습니다.")
       else:
         with st.spinner(
-            "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
+            "서버 과부하를 뚫고 Gemini AI가 명세서를 정밀 분석 중입니다..."
         ):
           try:
             import base64
 
-            image.thumbnail((800, 800))
+            # 이미지 크기와 용량을 대폭 줄여 전송 부하 최소화
+            image.thumbnail((640, 640))
             buffered = io.BytesIO()
-            image.save(buffered, format="JPEG", quality=70)
+            image.save(buffered, format="JPEG", quality=60)
             img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
             prompt = """
@@ -215,8 +216,8 @@ with tab2:
                         ]
                         """
 
-            # 과부하가 적고 안정적인 gemini-2.0-flash 모델 적용
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.0-flash:generateContent?key={api_key}"
+            # 구글이 요구하는 최신 gemini-3.8-flash 모델 적용
+            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent?key={api_key}"
 
             payload = {
                 "contents": [{
@@ -232,19 +233,21 @@ with tab2:
                 }]
             }
 
-            # 타임아웃을 30초로 넉넉하게 설정하고 자동 재시도 적용
-            max_retries = 3
+            # 503 과부하 대비 넉넉한 대기 시간과 함께 최대 5번까지 재시도
+            max_retries = 5
             response = None
+            wait_times = [3, 6, 10, 15]
+
             for attempt in range(max_retries):
               try:
                 response = requests.post(url, json=payload, timeout=30)
-                if response.status_code == 503 and attempt < max_retries - 1:
-                  time.sleep(3)
+                if response.status_code in [503, 500, 429] and attempt < max_retries - 1:
+                  time.sleep(wait_times[attempt])
                   continue
                 break
               except requests.exceptions.Timeout:
                 if attempt < max_retries - 1:
-                  time.sleep(3)
+                  time.sleep(wait_times[attempt])
                   continue
                 raise
 
