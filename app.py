@@ -130,85 +130,22 @@ with tab2:
     image = Image.open(uploaded_file)
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    if st.button("🚀 업로드한 사진의 품목/단가 추출하기"):
-      with st.spinner("AI가 새로운 명세서의 글자와 단가를 분석하는 중..."):
-        file_name = uploaded_file.name
-
-        if "436184" in file_name or "황도" in file_name or "미래" in file_name:
-          extracted_data = [
-              {
-                  "품목명": "SUS후렌지 10K FF 25A",
-                  "규격": "25A",
-                  "단가(원)": 11500,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "SUS후렌지 10K FF 40A",
-                  "규격": "40A",
-                  "단가(원)": 13100,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "SUS후렌지 10K FF 100A",
-                  "규격": "100A",
-                  "단가(원)": 24700,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "테프론 후렌지 박킹RF",
-                  "규격": "25A",
-                  "단가(원)": 1300,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "테프론 후렌지 박킹RF",
-                  "규격": "40A",
-                  "단가(원)": 1651,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "테프론 후렌지 박킹RF",
-                  "규격": "100A",
-                  "단가(원)": 3926,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "용접 SUS RS 100*32A",
-                  "규격": "100*32A",
-                  "단가(원)": 30200,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-              {
-                  "품목명": "용접 SUS RS 100*40A",
-                  "규격": "100*40A",
-                  "단가(원)": 25200,
-                  "거래처": "미래테크",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              },
-          ]
-        else:
-          extracted_data = [
-              {
-                  "품목명": "스텐후렌지",
-                  "규격": "25A",
-                  "단가(원)": 17000,
-                  "거래처": "전주배관",
-                  "거래일자": datetime.today().strftime("%Y-%m-%d"),
-              }
-          ]
-
-        st.session_state.items_df = pd.DataFrame(extracted_data)
-      st.success("✨ 새로운 사진 분석 완료! 아래 표를 확인하고 저장하세요.")
+    if st.button("🚀 업로드한 사진의 품목/단가 입력창 열기"):
+      # 테스트용 하드코딩 데이터를 완전히 제거하고 빈 행을 띄워 직접 입력/수정하도록 변경
+      extracted_data = [
+          {
+              "품목명": "",
+              "규격": "",
+              "단가(원)": 0,
+              "거래처": "",
+              "거래일자": datetime.today().strftime("%Y-%m-%d"),
+          }
+      ]
+      st.session_state.items_df = pd.DataFrame(extracted_data)
+      st.success("✨ 사진 업로드 완료! 아래 표에 직접 내용을 입력하거나 수정하세요.")
 
   if not st.session_state.items_df.empty:
-    st.markdown("### 📋 추출된 품목 리스트 (수정 가능)")
+    st.markdown("### 📋 품목 리스트 입력 및 수정")
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
@@ -232,10 +169,15 @@ with tab2:
           )
           saved_count += 1
       conn.commit()
-      st.success(
-          f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
-          " 저장되었습니다!"
-      )
-      st.session_state.items_df = pd.DataFrame(
-          columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
-      )
+      
+      if saved_count > 0:
+        st.success(
+            f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
+            " 저장되었습니다!"
+        )
+        st.session_state.items_df = pd.DataFrame(
+            columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
+        )
+        st.rerun()
+      else:
+        st.warning("저장할 품목명과 거래처를 올바르게 입력해 주세요.")
