@@ -191,7 +191,8 @@ with tab2:
         st.error("Streamlit Secrets에 `GEMINI_API_KEY`가 설정되지 않았습니다.")
       else:
         with st.spinner(
-            "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
+            "Gemini AI가 과부하를 뚫고 명세서를 정밀 분석하는 중입니다 (최대"
+            " 몇 초 소요)..."
         ):
           try:
             import base64
@@ -215,8 +216,7 @@ with tab2:
                         ]
                         """
 
-            # 과부하 없는 가장 안정적인 구형 표준 모델 (v1beta + gemini-1.5-flash)
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent?key={api_key}"
 
             payload = {
                 "contents": [{
@@ -232,18 +232,22 @@ with tab2:
                 }]
             }
 
-            max_retries = 3
+            # 503 에러 발생 시 대기 시간을 점진적으로 늘려가며 총 4번 재시도
+            max_retries = 4
             response = None
+            wait_times = [3, 6, 10]
+
             for attempt in range(max_retries):
               try:
-                response = requests.post(url, json=payload, timeout=20)
-                if response.status_code == 503 and attempt < max_retries - 1:
-                  time.sleep(2)
+                response = requests.post(url, json=payload, timeout=25)
+                # 503 과부하이거나 서버 에러일 경우 재시도
+                if response.status_code in [503, 500, 429] and attempt < max_retries - 1:
+                  time.sleep(wait_times[attempt])
                   continue
                 break
               except requests.exceptions.Timeout:
                 if attempt < max_retries - 1:
-                  time.sleep(2)
+                  time.sleep(wait_times[attempt])
                   continue
                 raise
 
