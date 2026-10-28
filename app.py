@@ -195,7 +195,6 @@ with tab2:
           try:
             import base64
 
-            # 이미지 크기를 더 가볍게 줄여서 전송 속도 향상
             image.thumbnail((800, 800))
             buffered = io.BytesIO()
             image.save(buffered, format="JPEG", quality=70)
@@ -215,8 +214,8 @@ with tab2:
                         ]
                         """
 
-            # 가장 안정적이고 빠른 gemini-1.5-flash 모델 사용
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            # 신형 키와 호환되는 최신 gemini-3.8-flash 모델 적용 완료
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
 
             payload = {
                 "contents": [{
