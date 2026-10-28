@@ -5,16 +5,23 @@ import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
 from google import genai
+from google.genai import types
 import streamlit as st
 
 # ==========================================
-# 🔑 최신 google-genai 클라이언트 초기화
+# 🔑 AQ 토큰(서비스 계정) 완벽 대응형 클라이언트 설정
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
   os.environ["GEMINI_API_KEY"] = api_key
-  # 최신 SDK 표준 클라이언트 생성
-  client = genai.Client()
+
+  # 만약 토큰이 AQ로 시작한다면 Vertex AI 모드로 강제 설정하여 토큰 에러 우회
+  if api_key.startswith("AQ"):
+    # Vertex AI 환경 변수 설정 (AQ 토큰 전용)
+    os.environ["GEMINI_USE_VERTEXAI"] = "True"
+    client = genai.Client()
+  else:
+    client = genai.Client()
 except Exception:
   client = None
 
@@ -214,7 +221,6 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 최신 SDK 비전 모델 호출
             response = client.models.generate_content(
                 model="gemini-2.5-flash", contents=[image, prompt]
             )
