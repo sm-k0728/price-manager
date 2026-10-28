@@ -3,36 +3,22 @@ import io
 import json
 import os
 import sqlite3
-import google.oauth2.credentials
+from google import genai
 import pandas as pd
 from PIL import Image, ImageOps
 import streamlit as st
-import vertexai
-from vertexai.generative_models import GenerativeModel, Part
 
 # ==========================================
-# 🔑 AQ 토큰(OAuth2 액세스 토큰) 전용 정확한 인증 설정
+# 🔑 신형 AQ API 키 전용 최신 google-genai 클라이언트 초기화
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
-
-  # 1. API 키 환경변수가 남아있으면 Vertex AI가 오인하므로 강제 삭제
-  if "GOOGLE_API_KEY" in os.environ:
-    del os.environ["GOOGLE_API_KEY"]
-
-  # 2. AQ 토큰을 구글 OAuth2 크리덴셜 객체로 직접 생성
-  creds = google.oauth2.credentials.Credentials(token=api_key)
-
-  # 3. Vertex AI 초기화 (project명은 본인의 GCP 프로젝트 ID로 설정되어야 합니다)
-  vertexai.init(
-      project="streamlit-price-manager",
-      location="us-central1",
-      credentials=creds,
-  )
-  model = GenerativeModel("gemini-2.5-flash")
-  vertex_ready = True
+  # 최신 SDK 표준 방식으로 클라이언트 생성 (AQ 키 완벽 지원)
+  client = genai.Client(api_key=api_key)
+  genai_ready = True
 except Exception as e:
-  vertex_ready = False
+  genai_ready = False
+  client = None
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -207,14 +193,14 @@ with tab2:
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
-      if not vertex_ready:
+      if not genai_ready:
         st.error(
-            "Streamlit Secrets에 설정된 토큰 또는 Vertex AI 초기화에"
-            " 실패했습니다."
+            "Streamlit Secrets에 `GEMINI_API_KEY` 설정이 올바른지 확인해"
+            " 주세요."
         )
       else:
         with st.spinner(
-            "Vertex AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
+            "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
         ):
           try:
             prompt = """
@@ -230,15 +216,10 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 이미지 용량 최적화
-            image.thumbnail((1024, 1024))
-
-            buffered = io.BytesIO()
-            image.save(buffered, format="JPEG", quality=85)
-            img_byte = buffered.getvalue()
-
-            image_part = Part.from_data(img_byte, mime_type="image/jpeg")
-            response = model.generate_content([image_part, prompt])
+            # 최신 google-genai SDK를 이용한 멀티모달 분석 호출
+            response = client.models.generate_content(
+                model="gemini-2.5-flash", contents=[image, prompt]
+            )
 
             clean_text = (
                 response.text.replace("```json", "")
