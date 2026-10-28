@@ -214,8 +214,8 @@ with tab2:
                         ]
                         """
 
-            # 신형 키와 호환되는 최신 gemini-3.8-flash 모델 적용 완료
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+            # 과부하가 적고 안정적인 gemini-1.5-pro 모델로 변경
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={api_key}"
 
             payload = {
                 "contents": [{
@@ -231,7 +231,7 @@ with tab2:
                 }]
             }
 
-            response = requests.post(url, json=payload, timeout=15)
+            response = requests.post(url, json=payload, timeout=20)
             result_json = response.json()
 
             if response.status_code == 200:
