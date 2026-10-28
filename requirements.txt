@@ -2,6 +2,3 @@ streamlit
 pandas
 gspread
 google-auth
-easyocr
-pillow
-numpy
