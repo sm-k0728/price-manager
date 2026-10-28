@@ -4,23 +4,19 @@ import os
 import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
-from google import genai  # 최신 구글 젠아이 라이브러리
-from google.genai import types
+from google import genai
 import streamlit as st
 
 # ==========================================
-# 🔑 최신 SDK 및 AQ 토큰 인증 설정
+# 🔑 최신 google-genai 클라이언트 초기화
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
   os.environ["GEMINI_API_KEY"] = api_key
-  # 최신 클라이언트 초기화 방식 (AQ 토큰 및 일반 키 모두 지원)
+  # 최신 SDK 표준 클라이언트 생성
   client = genai.Client()
 except Exception:
-  api_key = "YOUR_GEMINI_API_KEY"
-  if api_key != "YOUR_GEMINI_API_KEY":
-    os.environ["GEMINI_API_KEY"] = api_key
-    client = genai.Client()
+  client = None
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -195,7 +191,7 @@ with tab2:
     st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
-      if api_key == "YOUR_GEMINI_API_KEY":
+      if client is None:
         st.error(
             "Streamlit Secrets에 `GEMINI_API_KEY`가 설정되어 있는지 확인해"
             " 주세요!"
@@ -218,7 +214,7 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 최신 SDK 표준 호출 방식 (비전 분석)
+            # 최신 SDK 비전 모델 호출
             response = client.models.generate_content(
                 model="gemini-2.5-flash", contents=[image, prompt]
             )
@@ -238,10 +234,7 @@ with tab2:
             else:
               st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
           except Exception as e:
-            st.error(
-                f"AI 분석 중 오류가 발생했습니다: {e} (직접 아래 표에서 입력하셔도"
-                " 됩니다)"
-            )
+            st.error(f"AI 분석 중 오류가 발생했습니다: {e}")
 
   if st.session_state.items_df.empty:
     st.session_state.items_df = pd.DataFrame([{
