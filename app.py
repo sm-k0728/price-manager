@@ -195,9 +195,10 @@ with tab2:
           try:
             import base64
 
-            image.thumbnail((1024, 1024))
+            # 이미지 크기를 더 가볍게 줄여서 전송 속도 향상
+            image.thumbnail((800, 800))
             buffered = io.BytesIO()
-            image.save(buffered, format="JPEG", quality=80)
+            image.save(buffered, format="JPEG", quality=70)
             img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
 
             prompt = """
@@ -214,8 +215,8 @@ with tab2:
                         ]
                         """
 
-            # 최신 gemini-3.8-flash 모델 REST 엔드포인트
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+            # 가장 안정적이고 빠른 gemini-1.5-flash 모델 사용
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
 
             payload = {
                 "contents": [{
