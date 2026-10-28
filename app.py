@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 import io
 import json
@@ -217,20 +218,32 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 이미지 용량 압축 및 바이트 데이터 추출 (멈춤 방지 핵심)
+            # 이미지 용량 압축
             image.thumbnail((1024, 1024))
             buffered = io.BytesIO()
             image.save(buffered, format="JPEG", quality=80)
             img_byte = buffered.getvalue()
 
-            # types.Part를 이용해 바이트 스트림으로 안전하게 전송
             image_part = types.Part.from_bytes(
                 data=img_byte, mime_type="image/jpeg"
             )
 
-            response = client.models.generate_content(
-                model="gemini-3.8-flash", contents=[image_part, prompt]
-            )
+            # 10초 타임아웃 강제 적용 함수 (무한 멈춤 방지)
+            def call_gemini():
+              return client.models.generate_content(
+                  model="gemini-3.8-flash", contents=[image_part, prompt]
+              )
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+              future = executor.submit(call_gemini)
+              try:
+                response = future.result(
+                    timeout=10
+                )  # 10초 안에 안 오면 예외 발생
+              except Exception as timeout_err:
+                raise RuntimeError(
+                    "AI 서버 응답 시간이 초과되었습니다. (10초 타임아웃)"
+                )
 
             if response and response.text:
               clean_text = (
