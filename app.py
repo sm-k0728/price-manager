@@ -1,8 +1,18 @@
 from datetime import datetime
+import json
 import sqlite3
-import pandas as pd
+import google.generativeai as genai
+-import pandas as pd
 from PIL import Image, ImageOps
 import streamlit as st
+
+# ==========================================
+# 🔑 Gemini API 설정 (본인의 API 키를 입력하세요)
+# ==========================================
+GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # <-- 여기에 본인 키 입력
+
+if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
+  genai.configure(api_key=GEMINI_API_KEY)
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -20,14 +30,14 @@ c.execute("""
 conn.commit()
 
 st.set_page_config(
-    page_title="거래명세서 단가 관리 프로그램", page_icon="📦", layout="wide"
+    page_title="거래명세서 단가 관리 프로그램", page_icon="📦", layout="centered"
 )
 
-st.title("📦 거래명세서 단가 관리 프로그램")
+st.title("📦 거래명세서 AI 스마트 단가 관리기")
 
 # 화면 탭 설정
 tab1, tab2 = st.tabs(
-    ["🔍 전체 품목 조회 및 수정/삭제", "📝 거래명세서 등록 (사진 참고용)"]
+    ["🔍 전체 품목 조회 및 수정/삭제", "📝 AI 사진 자동 분석 및 등록"]
 )
 
 with tab1:
@@ -158,85 +168,117 @@ with tab1:
     st.warning("등록된 데이터가 없습니다. 상단의 탭에서 명세서를 등록해 주세요!")
 
 with tab2:
-  st.subheader("📝 거래명세서 사진 참조 및 단가 등록")
+  st.subheader("📝 AI 비전 기반 거래명세서 자동 인식")
 
-  # 좌우 화면 분할 (왼쪽: 사진 보기, 오른쪽: 데이터 입력 표)
-  col_img, col_form = st.columns([1, 1])
+  uploaded_file = st.file_uploader(
+      "거래명세서 사진 업로드", type=["png", "jpg", "jpeg"]
+  )
 
-  with col_img:
-    st.markdown("### 📷 명세서 사진 원본")
-    uploaded_file = st.file_uploader(
-        "거래명세서 사진 업로드", type=["png", "jpg", "jpeg"]
-    )
-    if uploaded_file is not None:
-      image = Image.open(uploaded_file)
-      image = ImageOps.exif_transpose(image)
-      if image.mode != "RGB":
-        image = image.convert("RGB")
-      st.image(image, caption="업로드된 명세서", use_container_width=True)
-    else:
-      st.info(
-          "사진을 업로드하시면 좌측에 명세서 원본이 표시됩니다. 보면서"
-          " 입력하세요!"
-      )
-
-  with col_form:
-    st.markdown("### ⌨️ 품목 정보 입력")
-    st.info(
-        "💡 아래 표에서 직접 품목명, 규격, 단가, 거래처를 입력하거나 행을"
-        " 추가(`+`)하여 한 번에 저장하세요."
+  if "items_df" not in st.session_state:
+    st.session_state.items_df = pd.DataFrame(
+        columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
     )
 
-    if "manual_df" not in st.session_state:
-      st.session_state.manual_df = pd.DataFrame([{
-          "품목명": "",
-          "규격": "",
-          "단가(원)": 0.0,
-          "거래처": "",
-          "거래일자": datetime.today().strftime("%Y-%m-%d"),
-      }])
+  if uploaded_file is not None:
+    image = Image.open(uploaded_file)
+    image = ImageOps.exif_transpose(image)
+    if image.mode != "RGB":
+      image = image.convert("RGB")
+    st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-    edited_manual_df = st.data_editor(
-        st.session_state.manual_df,
-        num_rows="dynamic",
-        use_container_width=True,
-    )
-
-    if st.button("💾 입력한 품목 데이터베이스에 일괄 저장하기", type="primary"):
-      saved_count = 0
-      for idx, row in edited_manual_df.iterrows():
-        if row["품목명"] and row["거래처"] and float(row["단가(원)"]) > 0:
-          c.execute(
-              """
-                        INSERT INTO prices (item_name, spec, price, supplier, date)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-              (
-                  row["품목명"],
-                  row["규격"],
-                  float(row["단가(원)"]),
-                  row["거래처"],
-                  row["거래일자"],
-              ),
-          )
-          saved_count += 1
-      conn.commit()
-
-      if saved_count > 0:
-        st.success(
-            f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
-            " 저장되었습니다!"
+    if st.button(
+        "✨ Gemini AI로 명세서 자동 분석하기",
+        type="primary",
+    ):
+      if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
+        st.error(
+            "코드 상단에 유효한 `GEMINI_API_KEY`를 입력해 주세요!"
         )
-        st.session_state.manual_df = pd.DataFrame([{
-            "품목명": "",
-            "규격": "",
-            "단가(원)": 0.0,
-            "거래처": "",
-            "거래일자": datetime.today().strftime("%Y-%m-%d"),
-        }])
-        st.rerun()
       else:
-        st.warning(
-            "저장된 항목이 없습니다. 품목명, 거래처, 단가를 정확히 입력했는지"
-            " 확인해 주세요."
+        with st.spinner(
+            "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
+        ):
+          try:
+            model = genai.GenerativeModel("gemini-2.5-flash")
+            prompt = """
+                        이 거래명세서 이미지에 적힌 품목 표와 공급자 정보를 분석하여 아래 JSON 형식의 리스트로만 추출해 주세요. 다른 설명은 절대 적지 마세요.
+                        - item_name: 품목명
+                        - spec: 규격 (예: 25A, 25*20A, 없으면 "-")
+                        - price: 단가 (숫자만, 콤마 제외)
+                        - supplier: 공급자(거래처) 상호명
+                        - date: 거래일자 (YYYY-MM-DD 형식, 연도가 없으면 올해 2026년 기준)
+
+                        출력 포맷 예시:
+                        [
+                          {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
+                        ]
+                        """
+            response = model.generate_content([image, prompt])
+            clean_text = (
+                response.text.replace("```json", "")
+                .replace("```", "")
+                .strip()
+            )
+            parsed_data = json.loads(clean_text)
+
+            if parsed_data:
+              st.session_state.items_df = pd.DataFrame(parsed_data)
+              st.success(
+                  "✨ AI 자동 분석 완료! 아래 표에서 내용을 확인하고"
+                  " 저장하세요."
+              )
+            else:
+              st.warning("추출된 품목이 없습니다. 직접 입력해 주세요.")
+          except Exception as e:
+            st.error(
+                f"AI 분석 중 오류가 발생했습니다: {e} (직접 아래 표에서 입력하셔도"
+                " 됩니다)"
+            )
+
+  if st.session_state.items_df.empty:
+    st.session_state.items_df = pd.DataFrame([{
+        "품목명": "",
+        "규격": "",
+        "단가(원)": 0.0,
+        "거래처": "",
+        "거래일자": datetime.today().strftime("%Y-%m-%d"),
+    }])
+
+  st.markdown(
+      "### 📋 등록할 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)"
+  )
+  edited_df = st.data_editor(
+      st.session_state.items_df, num_rows="dynamic", use_container_width=True
+  )
+
+  if st.button("💾 모든 품목 데이터베이스에 일괄 저장하기"):
+    saved_count = 0
+    for idx, row in edited_df.iterrows():
+      if row["품목명"] and row["거래처"] and float(row["단가(원)"]) > 0:
+        c.execute(
+            """
+                    INSERT INTO prices (item_name, spec, price, supplier, date)
+                    VALUES (?, ?, ?, ?, ?)
+                """,
+            (
+                row["품목명"],
+                row["규격"],
+                float(row["단가(원)"]),
+                row["거래처"],
+                row["거래일자"],
+            ),
         )
+        saved_count += 1
+    conn.commit()
+
+    if saved_count > 0:
+      st.success(
+          f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게"
+          " 저장되었습니다!"
+      )
+      st.session_state.items_df = pd.DataFrame(
+          columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
+      )
+      st.rerun()
+    else:
+      st.warning("저장할 유효한 데이터가 없습니다.")
