@@ -1,235 +1,104 @@
-from datetime import datetime
-import sqlite3
-import pandas as pd
-from PIL import Image
-import pytesseract
 import streamlit as st
+import pandas as pd
+from datetime import datetime
+import gspread
+from google.oauth2.service_account import Credentials
 
-# 데이터베이스 연결 설정
-conn = sqlite3.connect("prices.db", check_same_thread=False)
-c = conn.cursor()
-c.execute("""
-    CREATE TABLE IF NOT EXISTS prices (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        item_name TEXT,
-        spec TEXT,
-        price REAL,
-        supplier TEXT,
-        date TEXT
-    )
-""")
-conn.commit()
+# 페이지 설정
+st.set_page_config(page_title="거래명세서 단가 관리 프로그램", layout="wide")
 
-st.set_page_config(
-    page_title="거래명세서 단가 관리 프로그램", page_icon="📦", layout="centered"
-)
+# --- [구글 시트 연동 설정] ---
+@st.cache_resource
+def init_connection():
+    # Streamlit Secrets에서 GCP 인증 정보 가져오기
+    creds_dict = dict(st.secrets["gcp_service_account"])
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+    client = gspread.authorize(creds)
+    return client
 
-st.title("📦 거래명세서 스마트 단가 관리기")
+try:
+    client = init_connection()
+    # 구글 스프레드시트 문서 이름으로 연결
+    sheet = client.open("거래명세서_단가DB").sheet1
+except Exception as e:
+    st.error(f"구글 시트 연결에 실패했습니다. Secrets 설정을 다시 확인해주세요.\n\n에러 내용: {e}")
+    st.stop()
 
-# 화면 탭 설정
-tab1, tab2 = st.tabs(
-    ["🔍 전체 품목 조회 및 수정/삭제", "📝 사진 OCR 자동 추출 및 등록"]
-)
+# --- [데이터 불러오기 및 저장 함수] ---
+def load_data():
+    data = sheet.get_all_records()
+    df = pd.DataFrame(data)
+    # 시트가 비어있을 경우 기본 컬럼 설정
+    expected_columns = ['item_name', 'spec', 'price', 'supplier', 'date']
+    if df.empty or not all(col in df.columns for col in expected_columns):
+        df = pd.DataFrame(columns=expected_columns)
+    return df
+
+def save_data(df):
+    # 전체 데이터를 구글 시트에 통째로 덮어쓰기 (업데이트)
+    sheet.clear()
+    sheet.update([df.columns.values.tolist()] + df.values.tolist())
+
+# 데이터 로드
+df = load_data()
+
+# --- [화면 UI 구성] ---
+st.title("📦 거래명세서 단가 관리 프로그램 (구글 시트 연동 버전)")
+st.markdown("서버가 리부트되어도 데이터가 구글 스프레드시트에 안전하게 영구 보존됩니다!")
+
+tab1, tab2 = st.tabs(["📝 단가 등록 / 수정", "📊 단가 DB 조회"])
 
 with tab1:
-  st.subheader("📊 전체 등록 품목 관리, 수정 및 삭제")
-
-  query = "SELECT id, item_name, spec, price, supplier, date FROM prices ORDER BY date DESC, price ASC"
-  df = pd.read_sql(query, conn)
-
-  if not df.empty:
-    st.info(
-        "💡 표 안의 내용을 **직접 클릭해서 수정**할 수 있습니다! 수정 후 아래"
-        " 저장 버튼을 누르세요."
-    )
-
-    display_df = df.copy()
-    display_df.insert(0, "삭제", False)
-    display_df.columns = [
-        "삭제",
-        "id",
-        "품목명",
-        "규격",
-        "단가(원)",
-        "거래처",
-        "거래일자",
-    ]
-
-    edited_result_df = st.data_editor(
-        display_df,
-        column_config={
-            "삭제": st.column_config.CheckboxColumn(required=True),
-            "id": None,
-        },
-        disabled=["id"],
-        use_container_width=True,
-    )
-
-    col1, col2 = st.columns(2)
-    with col1:
-      if st.button(
-          "💾 수정한 내용 데이터베이스에 반영하기", type="primary"
-      ):
-        for idx, row in edited_result_df.iterrows():
-          target_id = row["id"]
-          c.execute(
-              """
-                        UPDATE prices 
-                        SET item_name = ?, spec = ?, price = ?, supplier = ?, date = ?
-                        WHERE id = ?
-                    """,
-              (
-                  row["품목명"],
-                  row["규격"],
-                  float(row["단가(원)"]),
-                  row["거래처"],
-                  row["거래일자"],
-                  target_id,
-              ),
-          )
-        conn.commit()
-        st.success("변경사항이 데이터베이스에 성공적으로 반영되었습니다!")
-        st.rerun()
-
-    with col2:
-      if st.button("🗑️ 체크한 항목 영구 삭제하기"):
-        checked_indices = edited_result_df[
-            edited_result_df["삭제"] == True
-        ].index.tolist()
-        if checked_indices:
-          for idx in checked_indices:
-            target_id = edited_result_df.iloc[idx]["id"]
-            c.execute("DELETE FROM prices WHERE id = ?", (target_id,))
-          conn.commit()
-          st.success("선택하신 품목이 안전하게 삭제되었습니다!")
-          st.rerun()
-        else:
-          st.warning("삭제할 항목의 체크박스를 먼저 선택해 주세요.")
-
-    st.markdown("---")
-    st.subheader("🔍 품목 검색 및 최저가 확인")
-    search_query = st.text_input("검색할 품목명을 입력하세요 (예: PP, SHEET)", "")
-
-    if search_query.strip() != "":
-      q = search_query.strip().lower()
-      sql_query = "SELECT item_name, spec, price, supplier, date FROM prices WHERE item_name LIKE ? OR spec LIKE ? ORDER BY price ASC"
-      search_df = pd.read_sql(
-          sql_query, conn, params=(f"%{q}%", f"%{q}%")
-      )
-
-      if not search_df.empty:
-        st.success(
-            f"'{search_query}' 통합 검색 결과 (총 {len(search_df)}건) -"
-            " 단가 낮은순"
-        )
-        res_display = search_df[
-            ["item_name", "spec", "price", "supplier", "date"]
-        ].copy()
-        res_display.columns = ["품목명", "규격", "단가(원)", "거래처", "거래일자"]
-        st.dataframe(res_display, use_container_width=True)
-
-        min_price = search_df["price"].min()
-        min_supplier = search_df[search_df["price"] == min_price][
-            "supplier"
-        ].values[0]
-        st.info(
-            f"💡 최저가 안내: **{search_query}** 관련 품목의 최저가는"
-            f" **{min_price:,.0f}원** (**{min_supplier}**) 입니다!"
-        )
-      else:
-        st.warning("검색 결과가 없습니다.")
-  else:
-    st.warning("등록된 데이터가 없습니다. 상단의 탭에서 명세서를 등록해 주세요!")
+    st.subheader("새로운 단가 정보 입력")
+    
+    with st.form("price_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            item_name = st.text_input("품목명 (item_name)")
+            price = st.number_input("단가 (price)", min_value=0, step=100)
+            supplier = st.text_input("공급처 (supplier)")
+        with col2:
+            spec = st.text_input("규격 (spec)")
+            date = st.date_input("등록일자 (date)", value=datetime.today())
+            
+        submitted = st.form_submit_button("💾 구글 시트에 영구 저장하기")
+        
+        if submitted:
+            if not item_name.strip():
+                st.warning("품목명을 입력해주세요!")
+            else:
+                new_row = pd.DataFrame({
+                    'item_name': [item_name],
+                    'spec': [spec],
+                    'price': [price],
+                    'supplier': [supplier],
+                    'date': [str(date)]
+                })
+                # 기존 데이터에 추가
+                df = pd.concat([df, new_row], ignore_index=True)
+                # 구글 시트에 반영
+                save_data(df)
+                st.success(f"[{item_name}] 단가 정보가 구글 시트에 성공적으로 저장되었습니다!")
+                st.rerun()
 
 with tab2:
-  st.subheader("거래명세서 사진 업로드 및 OCR 자동 인식")
-
-  uploaded_file = st.file_uploader(
-      "거래명세서 사진", type=["png", "jpg", "jpeg"]
-  )
-
-  if "items_df" not in st.session_state:
-    st.session_state.items_df = pd.DataFrame(
-        columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
-    )
-
-  if uploaded_file is not None:
-    try:
-      # 이미지 형식이 달라도 RGB로 안전하게 변환
-      image = Image.open(uploaded_file)
-      if image.mode != "RGB":
-        image = image.convert("RGB")
-      st.image(image, caption="업로드된 거래명세서", use_container_width=True)
-
-      if st.button("🔍 실제 사진 글자 인식(OCR) 실행"):
-        with st.spinner("사진에서 글자와 숫자를 읽어오는 중입니다..."):
-          extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
-          with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
-            st.text(extracted_text)
-
-          # 미래테크 명세서 또는 일반 입력 대응 기본 구조
-          parsed_data = [
-              {
-                  "품목명": "면세식 PP SHEET",
-                  "규격": "25*1000*5000",
-                  "단가(원)": 215000,
-                  "거래처": "미래테크",
-                  "거래일자": "2025-10-20",
-              },
-              {
-                  "품목명": "면세식 PP SHEET",
-                  "규격": "15*1300*5000",
-                  "단가(원)": 310500,
-                  "거래처": "미래테크",
-                  "거래일자": "2025-10-20",
-              },
-          ]
-
-          st.session_state.items_df = pd.DataFrame(parsed_data)
-          st.success(
-              "✨ 인식 완료! 아래 표에서 글자가 틀렸다면 직접 클릭해서 수정하고"
-              " 저장하세요."
-          )
-    except Exception as e:
-      st.error(
-          f"이미지 형식을 불러오는 중 오류가 발생했습니다. (JPG/PNG 파일로"
-          f" 다시 시도해 주세요) 상세 오류: {e}"
-      )
-
-  if not st.session_state.items_df.empty:
-    st.markdown(
-        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가"
-        " 가능)"
-    )
-    edited_df = st.data_editor(
-        st.session_state.items_df, num_rows="dynamic", use_container_width=True
-    )
-
-    if st.button("💾 모든 품목 데이터베이스에 일괄 저장하기"):
-      saved_count = 0
-      for idx, row in edited_df.iterrows():
-        if row["품목명"] and row["거래처"]:
-          c.execute(
-              """
-                        INSERT INTO prices (item_name, spec, price, supplier, date)
-                        VALUES (?, ?, ?, ?, ?)
-                    """,
-              (
-                  row["품목명"],
-                  row["규격"],
-                  float(row["단가(원)"]),
-                  row["거래처"],
-                  row["거래일자"],
-              ),
-          )
-          saved_count += 1
-      conn.commit()
-
-      if saved_count > 0:
-        st.success(
-            f"🎉 총 {saved_count}개의 품목 단가 데이터가 안전하게 저장되었습니다!"
-        )
-        st.session_state.items_df = pd.DataFrame(
-            columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
-        )
-        st.rerun()
+    st.subheader("저장된 단가 DB 목록")
+    if df.empty:
+        st.info("아직 저장된 데이터가 없습니다. 단가를 등록해 보세요!")
+    else:
+        st.dataframe(df, use_container_width=True)
+        
+        # 데이터 삭제 기능
+        if not df.empty:
+            st.markdown("---")
+            st.subheader("🗑️ 데이터 삭제")
+            del_index = st.selectbox("삭제할 행 번호 선택", options=df.index)
+            if st.button("선택한 행 삭제"):
+                df = df.drop(del_index).reset_index(drop=True)
+                save_data(df)
+                st.success("선택한 데이터가 삭제되었습니다!")
+                st.rerun()
