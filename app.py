@@ -11,15 +11,19 @@ import vertexai
 from vertexai.generative_models import GenerativeModel, Part
 
 # ==========================================
-# 🔑 AQ 토큰을 OAuth2 인증 객체로 직접 주입하여 메타데이터 조회 우회
+# 🔑 AQ 토큰(OAuth2 액세스 토큰) 전용 정확한 인증 설정
 # ==========================================
 try:
   api_key = st.secrets["GEMINI_API_KEY"]
 
-  # AQ 토큰을 구글 OAuth2 크리덴셜 객체로 직접 생성
+  # 1. API 키 환경변수가 남아있으면 Vertex AI가 오인하므로 강제 삭제
+  if "GOOGLE_API_KEY" in os.environ:
+    del os.environ["GOOGLE_API_KEY"]
+
+  # 2. AQ 토큰을 구글 OAuth2 크리덴셜 객체로 직접 생성
   creds = google.oauth2.credentials.Credentials(token=api_key)
 
-  # Vertex AI 초기화 시 명시적으로 credentials 전달 (메타데이터 서버 접속 차단)
+  # 3. Vertex AI 초기화 (project명은 본인의 GCP 프로젝트 ID로 설정되어야 합니다)
   vertexai.init(
       project="streamlit-price-manager",
       location="us-central1",
@@ -205,7 +209,7 @@ with tab2:
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
       if not vertex_ready:
         st.error(
-            "Streamlit Secrets에 `GEMINI_API_KEY` 설정 및 Vertex AI 초기화에"
+            "Streamlit Secrets에 설정된 토큰 또는 Vertex AI 초기화에"
             " 실패했습니다."
         )
       else:
@@ -226,7 +230,7 @@ with tab2:
                           {"item_name": "스텐후렌지", "spec": "25A", "price": 17000, "supplier": "전주배관", "date": "2026-09-12"}
                         ]
                         """
-            # 이미지 용량 최적화 (속도 개선)
+            # 이미지 용량 최적화
             image.thumbnail((1024, 1024))
 
             buffered = io.BytesIO()
