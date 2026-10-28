@@ -7,12 +7,15 @@ from PIL import Image, ImageOps
 import streamlit as st
 
 # ==========================================
-# 🔑 Gemini API 설정 (본인의 API 키를 입력하세요)
+# 🔑 Gemini API 설정 (Streamlit Secrets 연동)
 # ==========================================
-GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"  # <-- 여기에 본인 키 입력
-
-if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
+try:
+  GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
   genai.configure(api_key=GEMINI_API_KEY)
+except Exception:
+  GEMINI_API_KEY = "YOUR_GEMINI_API_KEY"
+  if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY":
+    genai.configure(api_key=GEMINI_API_KEY)
 
 # 데이터베이스 연결 설정
 conn = sqlite3.connect("prices.db", check_same_thread=False)
@@ -188,13 +191,16 @@ with tab2:
 
     if st.button("✨ Gemini AI로 명세서 자동 분석하기", type="primary"):
       if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY":
-        st.error("코드 상단에 유효한 `GEMINI_API_KEY`를 입력해 주세요!")
+        st.error(
+            "Streamlit Secrets에 `GEMINI_API_KEY`가 설정되어 있는지 확인해"
+            " 주세요!"
+        )
       else:
         with st.spinner(
             "Gemini AI가 명세서의 품목, 규격, 단가를 정밀 분석하는 중입니다..."
         ):
           try:
-            model = genai.GenerativeModel("gemini-2.5-flash")
+            model = genai.GenerativeModel("gemini-1.5-flash")
             prompt = """
                         이 거래명세서 이미지에 적힌 품목 표와 공급자 정보를 분석하여 아래 JSON 형식의 리스트로만 추출해 주세요. 다른 설명은 절대 적지 마세요.
                         - item_name: 품목명
