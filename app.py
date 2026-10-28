@@ -3,6 +3,7 @@ import io
 import json
 import os
 import sqlite3
+import time
 import pandas as pd
 from PIL import Image, ImageOps
 import requests
@@ -214,7 +215,8 @@ with tab2:
                         ]
                         """
 
-            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent?key={api_key}"
+            # 구글이 지정해 준 최신 gemini-3.8-flash 모델 적용
+            url = f"https://generativelanguage.googleapis.com/v1/models/gemini-3.8-flash:generateContent?key={api_key}"
 
             payload = {
                 "contents": [{
@@ -230,7 +232,22 @@ with tab2:
                 }]
             }
 
-            response = requests.post(url, json=payload, timeout=20)
+            # 503 과부하 대비 자동 재시도 로직 (최대 3번)
+            max_retries = 3
+            response = None
+            for attempt in range(max_retries):
+              try:
+                response = requests.post(url, json=payload, timeout=20)
+                if response.status_code == 503 and attempt < max_retries - 1:
+                  time.sleep(2)
+                  continue
+                break
+              except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                  time.sleep(2)
+                  continue
+                raise
+
             result_json = response.json()
 
             if response.status_code == 200:
