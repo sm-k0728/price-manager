@@ -3,6 +3,9 @@ import pandas as pd
 from datetime import datetime
 import gspread
 from google.oauth2.service_account import Credentials
+import easyocr
+import numpy as np
+from PIL import Image
 
 # 페이지 설정
 st.set_page_config(page_title="거래명세서 단가 관리 프로그램", layout="wide")
@@ -10,7 +13,6 @@ st.set_page_config(page_title="거래명세서 단가 관리 프로그램", layo
 # --- [구글 시트 연동 설정] ---
 @st.cache_resource
 def init_connection():
-    # Streamlit Secrets에서 GCP 인증 정보 가져오기
     creds_dict = dict(st.secrets["gcp_service_account"])
     scopes = [
         "https://www.googleapis.com/auth/spreadsheets",
@@ -22,83 +24,21 @@ def init_connection():
 
 try:
     client = init_connection()
-    # 구글 스프레드시트 문서 이름으로 연결
     sheet = client.open("거래명세서_단가DB").sheet1
 except Exception as e:
     st.error(f"구글 시트 연결에 실패했습니다. Secrets 설정을 다시 확인해주세요.\n\n에러 내용: {e}")
     st.stop()
 
+# --- [OCR 모델 로드 (한국어/영어 지원)] ---
+@st.cache_resource
+def load_ocr_reader():
+    return easyocr.Reader(['ko', 'en'])
+
+with st.spinner("AI 텍스트 인식 엔진을 불러오는 중입니다... 잠시만 기다려주세요!"):
+    reader = load_ocr_reader()
+
 # --- [데이터 불러오기 및 저장 함수] ---
 def load_data():
     data = sheet.get_all_records()
     df = pd.DataFrame(data)
-    # 시트가 비어있을 경우 기본 컬럼 설정
-    expected_columns = ['item_name', 'spec', 'price', 'supplier', 'date']
-    if df.empty or not all(col in df.columns for col in expected_columns):
-        df = pd.DataFrame(columns=expected_columns)
-    return df
-
-def save_data(df):
-    # 전체 데이터를 구글 시트에 통째로 덮어쓰기 (업데이트)
-    sheet.clear()
-    sheet.update([df.columns.values.tolist()] + df.values.tolist())
-
-# 데이터 로드
-df = load_data()
-
-# --- [화면 UI 구성] ---
-st.title("📦 거래명세서 단가 관리 프로그램 (구글 시트 연동 버전)")
-st.markdown("서버가 리부트되어도 데이터가 구글 스프레드시트에 안전하게 영구 보존됩니다!")
-
-tab1, tab2 = st.tabs(["📝 단가 등록 / 수정", "📊 단가 DB 조회"])
-
-with tab1:
-    st.subheader("새로운 단가 정보 입력")
-    
-    with st.form("price_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            item_name = st.text_input("품목명 (item_name)")
-            price = st.number_input("단가 (price)", min_value=0, step=100)
-            supplier = st.text_input("공급처 (supplier)")
-        with col2:
-            spec = st.text_input("규격 (spec)")
-            date = st.date_input("등록일자 (date)", value=datetime.today())
-            
-        submitted = st.form_submit_button("💾 구글 시트에 영구 저장하기")
-        
-        if submitted:
-            if not item_name.strip():
-                st.warning("품목명을 입력해주세요!")
-            else:
-                new_row = pd.DataFrame({
-                    'item_name': [item_name],
-                    'spec': [spec],
-                    'price': [price],
-                    'supplier': [supplier],
-                    'date': [str(date)]
-                })
-                # 기존 데이터에 추가
-                df = pd.concat([df, new_row], ignore_index=True)
-                # 구글 시트에 반영
-                save_data(df)
-                st.success(f"[{item_name}] 단가 정보가 구글 시트에 성공적으로 저장되었습니다!")
-                st.rerun()
-
-with tab2:
-    st.subheader("저장된 단가 DB 목록")
-    if df.empty:
-        st.info("아직 저장된 데이터가 없습니다. 단가를 등록해 보세요!")
-    else:
-        st.dataframe(df, use_container_width=True)
-        
-        # 데이터 삭제 기능
-        if not df.empty:
-            st.markdown("---")
-            st.subheader("🗑️ 데이터 삭제")
-            del_index = st.selectbox("삭제할 행 번호 선택", options=df.index)
-            if st.button("선택한 행 삭제"):
-                df = df.drop(del_index).reset_index(drop=True)
-                save_data(df)
-                st.success("선택한 데이터가 삭제되었습니다!")
-                st.rerun()
+    expected_columns
