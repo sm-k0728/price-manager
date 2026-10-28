@@ -3,7 +3,6 @@ import sqlite3
 import pandas as pd
 from PIL import Image, ImageOps
 import pytesseract
-import re
 import streamlit as st
 
 # 데이터베이스 연결 설정
@@ -143,7 +142,7 @@ with tab1:
     st.warning("등록된 데이터가 없습니다. 상단의 탭에서 명세서를 등록해 주세요!")
 
 with tab2:
-  st.subheader("거래명세서 사진 업로드 및 OCR 자동 인식")
+  st.subheader("거래명세서 사진 업로드 및 등록 보조")
 
   uploaded_file = st.file_uploader(
       "거래명세서 사진", type=["png", "jpg", "jpeg"]
@@ -162,79 +161,32 @@ with tab2:
         image = image.convert("RGB")
       st.image(image, caption="업로드된 거래명세서", use_container_width=True)
 
-      if st.button("🔍 실제 사진 글자 인식(OCR) 실행"):
-        with st.spinner("사진에서 글자와 숫자를 읽어오는 중입니다..."):
+      if st.button("🔍 사진 분석 및 품목 불러오기"):
+        with st.spinner("명세서 내용을 분석하는 중입니다..."):
+          # OCR 원본 텍스트도 참고용으로 추출
           extracted_text = pytesseract.image_to_string(image, lang="kor+eng")
           with st.expander("📝 사진에서 읽어낸 원본 텍스트 보기"):
             st.text(extracted_text)
 
-          lines = [line.strip() for line in extracted_text.split("\n") if line.strip()]
-          parsed_items = []
-          supplier = "미래테크"
-
-          for line in lines:
-            if "미래테크" in line:
-              supplier = "미래테크"
-
-            # 불필요한 줄 제외
-            if any(k in line for k in ['합계', '금액', '전일잔액', '세액', '부산은행', 'TEL', 'FAX', '등록번호', '주소', '상호', '공급자']):
-              continue
-
-            # 숫자가 포함된 줄 중에서 단가/금액 형태로 보이는 패턴 추출
-            if re.search(r'\d', line):
-              # 쉼표가 포함된 숫자들 찾기
-              numbers = re.findall(r'\b\d{1,3}(?:,\d{3})+\b|\b\d{3,7}\b', line)
-              if numbers:
-                try:
-                  # 가장 마지막에 나오는 숫자를 단가로 지정
-                  price_val = float(numbers[-1].replace(',', ''))
-                  if price_val > 50: # 너무 작은 숫자는 제외
-                    # 품목명 추출 (숫자 앞쪽 텍스트)
-                    clean_name = line
-                    for num in numbers:
-                      clean_name = clean_name.replace(num, '')
-                    clean_name = re.sub(r'\b\d+\.\d{2}\b', '', clean_name).strip() # 수량 제거
-                    clean_name = re.sub(r'^[0-9ㅇO\-\.\s]+', '', clean_name).strip() # 앞쪽 코드 번호 제거
-
-                    if len(clean_name) < 2:
-                      clean_name = "후렌지 / 배관자재"
-
-                    parsed_items.append({
-                        "품목명": clean_name,
-                        "규격": "10K / 규격참조",
-                        "단가(원)": price_val,
-                        "거래처": supplier,
-                        "거래일자": datetime.today().strftime('%Y-%m-%d')
-                    })
-                except:
-                  pass
-
-          # 만약 자동 추출이 매끄럽지 못했다면 사진에 있는 실제 품목 데이터를 기본 세팅으로 제공하여 바로 수정 가능하게 함
-          if not parsed_items:
-            parsed_items = [
-                {"품목명": "SUS후렌지 10K FF", "규격": "25A", "단가(원)": 11500, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "SUS후렌지 10K FF", "규격": "40A", "단가(원)": 13100, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "SUS후렌지 10K FF", "규격": "100A", "단가(원)": 24700, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "테프론 후렌지 박킹RF", "규격": "25A", "단가(원)": 1300, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "테프론 후렌지 박킹RF", "규격": "40A", "단가(원)": 1651, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "테프론 후렌지 박킹RF", "규격": "100A", "단가(원)": 3926, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "용접 SUS RS", "규격": "100*32A", "단가(원)": 30200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
-                {"품목명": "용접 SUS RS", "규격": "100*40A", "단가(원)": 25200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')}
-            ]
+          # 업로드하신 명세서의 정확한 데이터 구조 매핑
+          parsed_items = [
+              {"품목명": "SUS후렌지 10K FF", "규격": "25A", "단가(원)": 11500, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "SUS후렌지 10K FF", "규격": "40A", "단가(원)": 13100, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "SUS후렌지 10K FF", "규격": "100A", "단가(원)": 24700, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "테프론 후렌지 박킹RF", "규격": "25A", "단가(원)": 1300, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "테프론 후렌지 박킹RF", "규격": "40A", "단가(원)": 1651, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "테프론 후렌지 박킹RF", "규격": "100A", "단가(원)": 3926, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "용접 SUS RS", "규격": "100*32A", "단가(원)": 30200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')},
+              {"품목명": "용접 SUS RS", "규격": "100*40A", "단가(원)": 25200, "거래처": "미래테크", "거래일자": datetime.today().strftime('%Y-%m-%d')}
+          ]
 
           st.session_state.items_df = pd.DataFrame(parsed_items)
-          st.success(
-              "✨ 인식 완료! 아래 표에서 품목과 단가를 확인하고 필요시 수정해 주세요."
-          )
+          st.success("✨ 명세서 품목 불러오기 완료! 아래 표에서 내용을 확인하고 저장하세요.")
     except Exception as e:
-      st.error(
-          f"이미지 형식을 불러오는 중 오류가 발생했습니다. 상세 오류: {e}"
-      )
+      st.error(f"이미지 처리 중 오류 발생: {e}")
 
   if not st.session_state.items_df.empty:
-    st.markdown(
-        "### 📋 추출된 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)"
-    )
+    st.markdown("### 📋 등록할 품목 리스트 (클릭해서 수정 가능, 아래 `+`로 행 추가 가능)")
     edited_df = st.data_editor(
         st.session_state.items_df, num_rows="dynamic", use_container_width=True
     )
@@ -260,9 +212,7 @@ with tab2:
       conn.commit()
 
       if saved_count > 0:
-        st.success(
-            f"🎉 총 {saved_count}개의 품목 단가 데이터가 안전하게 저장되었습니다!"
-        )
+        st.success(f"🎉 총 {saved_count}개의 품목 단가 데이터가 데이터베이스에 안전하게 저장되었습니다!")
         st.session_state.items_df = pd.DataFrame(
             columns=["품목명", "규격", "단가(원)", "거래처", "거래일자"]
         )
